@@ -2,7 +2,11 @@
 #define MEMORYMAP_H
 #include <string>
 #include <cstddef>
+#include <fcntl.h>
+#include <unistd.h>
 #include <sys/stat.h>
+#include <sys/mman.h>
+#include <stdexcept>
 
 class MemoryMap
 {

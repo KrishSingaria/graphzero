@@ -1,21 +1,4 @@
 #include "MemoryMap.hpp"
-#include <string>
-#include <cstddef>
-#include <fcntl.h>
-#include <unistd.h>
-#include <sys/stat.h>
-#include <sys/mman.h>
-#include <stdexcept>
-
-void* MemoryMap::get_data(){
-    // get data pointer 
-    return this->mappedptr;
-}
-
-size_t MemoryMap::get_size(){
-    // get the length in bytes
-    return this->length;
-}
 
 MemoryMap::MemoryMap(const char* path){
     // acquires resource/bin file on the Path given
@@ -50,5 +33,12 @@ MemoryMap::~MemoryMap(){
     this->fd = -1;
     this->length = 0;   
 }
+void* MemoryMap::get_data(){
+    // get data pointer 
+    return this->mappedptr;
+}
 
-
+size_t MemoryMap::get_size(){
+    // get the length in bytes
+    return this->length;
+}
