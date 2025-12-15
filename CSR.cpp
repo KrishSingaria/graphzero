@@ -1,19 +1,29 @@
 #include "CSR.hpp"
 #include "MemoryMap.hpp"
 
-CSR::CSR(const char* nnzPath,const char* colPath){
+CSR::CSR(const char* graphPath){
     // constructor
-    this->nnzRowMaped = new MemoryMap(nnzPath);
-    this->colPtrMaped = new MemoryMap(colPath);
+    this->graphMap = new MemoryMap(graphPath);
     
-    this->nnzRow = reinterpret_cast<size_t*>(this->nnzRowMaped->get_data());
-    this->colPtr = reinterpret_cast<size_t*>(this->colPtrMaped->get_data());
+    // this->nnzRow = reinterpret_cast<size_t*>(this->nnzRowMaped->get_data());
+    // this->colPtr = reinterpret_cast<size_t*>(this->colPtrMaped->get_data());
+
+    // get the first number to check if they are magic numbers 
+    GraphHeader header = reinterpret_cast<GraphHeader*>(this->graphMap->get_data())[0]; 
+
+    if(header.MAGIC_NUM != MAGIC_NUM){
+        throw std::runtime_error("Magic number of files DOESN'T match with actual magic number");
+    }
+    this->sizeofnnzRow = header.sizeofnnzRow;
+    this->sizeofcolPtr = header.sizeofcolPtr;
+
+    this->nnzRow = reinterpret_cast<size_t*>(this->graphMap->get_data()) + header.offset_nnz/sizeof(size_t);
+    this->colPtr = reinterpret_cast<size_t*>(this->graphMap->get_data()) + header.offset_col/sizeof(size_t);
 }
 
 CSR::~CSR(){
     //destructor 
-    delete this->nnzRowMaped;  
-    delete this->colPtrMaped;
+    delete this->graphMap;
     this->nnzRow = nullptr;
     this->colPtr = nullptr;
 }
@@ -37,4 +47,15 @@ std::span<size_t> CSR::get_edges(size_t nodeId){
     size_t* p =&this->colPtr[this->nnzRow[nodeId]];
     size_t  d = this->get_degree(nodeId);
     return std::span<size_t>(p,d);
+}
+
+void CSR::set_access_pattern(bool isRandom){
+
+    if(isRandom){
+        madvise(this->nnzRow,this->sizeofnnzRow,MADV_RANDOM);
+        madvise(this->colPtr,this->sizeofcolPtr,MADV_RANDOM);
+    }else{
+        madvise(this->nnzRow,this->sizeofcolPtr,MADV_SEQUENTIAL);
+        madvise(this->colPtr,this->sizeofcolPtr,MADV_SEQUENTIAL);
+    }
 }

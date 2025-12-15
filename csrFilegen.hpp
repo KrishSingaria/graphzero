@@ -5,6 +5,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <stdexcept>
+#include "MemoryMap.hpp"
 
-void generateBinary(std::vector<size_t> data,const char* pathFileName);
+void generateBinary(std::vector<size_t> nnzRow,std::vector<size_t> colPtr,const char* pathFileName);
 #endif
