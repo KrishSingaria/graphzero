@@ -38,4 +38,47 @@ public:
     size_t get_size();
 };
 
+inline MemoryMap::MemoryMap(const char* path){
+    // acquires resource/bin file on the Path given
+    
+    if((fd = open(path,O_RDONLY)) == -1){
+        throw std::runtime_error("File open failed");
+    }
+
+    if(fstat(fd,&st) == -1){
+        close(fd);
+        throw std::runtime_error("File open failed");
+    }
+    length = st.st_size; // size in bytes
+
+    if ((mappedptr = mmap(NULL,length,PROT_READ,MAP_SHARED,fd,0) ) == MAP_FAILED) {
+        close(fd); // Clean up the fd we just opened
+        throw std::runtime_error("mmap failed");
+    }
+}
+
+inline MemoryMap::~MemoryMap(){
+    // release resource, destory itself
+
+    if(mappedptr != MAP_FAILED && mappedptr != nullptr){
+        munmap(mappedptr,length);
+    }
+    
+    if(fd != -1){
+        close(fd);
+    }
+
+    fd = -1;
+    length = 0;   
+}
+inline void* MemoryMap::get_data(){
+    // get data pointer 
+    return mappedptr;
+}
+
+inline size_t MemoryMap::get_size(){
+    // get the length in bytes
+    return length;
+}
+
 #endif
