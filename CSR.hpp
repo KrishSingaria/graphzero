@@ -33,9 +33,6 @@ public:
 inline CSR::CSR(const char* graphPath){
     // constructor
     this->graphMap = new MemoryMap(graphPath);
-    
-    // this->nnzRow = reinterpret_cast<size_t*>(this->nnzRowMaped->get_data());
-    // this->colPtr = reinterpret_cast<size_t*>(this->colPtrMaped->get_data());
 
     // get the first number to check if they are magic numbers 
     GraphHeader header = reinterpret_cast<GraphHeader*>(this->graphMap->get_data())[0]; 

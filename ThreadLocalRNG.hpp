@@ -11,7 +11,7 @@ std::mt19937 engine;
 public:
     ThreadLocalRNG(){
         std::random_device rd;
-        engine.seed(rd);
+        engine.seed(rd());
     }
 
     // [min,max] inclusive 

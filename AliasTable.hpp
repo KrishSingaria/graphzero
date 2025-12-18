@@ -19,9 +19,9 @@ public:
     AliasTable() = default;
     AliasTable(const std::vector<float>& weights); // N buckets; N size cache
 
-    size_t sample();
+    size_t sample() const;
 
-    bool empty(){ return prob.empty(); }
+    bool empty() const { return prob.empty(); }
 };
 
 inline AliasTable::AliasTable(const std::vector<float>& weights)
@@ -78,7 +78,7 @@ inline AliasTable::AliasTable(const std::vector<float>& weights)
     }
 }
 
-inline size_t AliasTable::sample(){
+inline size_t AliasTable::sample() const{
     if(N == 0) return 0; 
 
     float uniformAtRandom = N*RNG.rand();

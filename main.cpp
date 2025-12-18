@@ -1,50 +1,48 @@
-// test code 
 #include <iostream>
 #include <vector>
-#include <span>
+#include <chrono>
+#include <omp.h> // Parallel processing
+#include "Graphlite.hpp"
 
-#include "MemoryMap.hpp"
-#include "CSR.hpp"
-#include "csrFilegen.hpp"
+// Compilation: 
+// g++ -std=c++20 -O3 -march=native -fopenmp ./main.cpp -o bench
 
-using namespace std;
-
-int main(int argc, char const *argv[])
-{
-    vector<size_t> nnzRowData = {0,2,5,7,11,13,14};
-    vector<size_t> colPtrData = {1,3,0,2,3,1,3,0,1,2,4,3,5,4};
+int main() {
+    std::cout << "Loading Graph..." << std::endl;
+    Graphlite graph("graph.gl");
     
-    generateBinary(nnzRowData,colPtrData,"./graph.gl");
-
-    cout<<"FILE GEN COMPLETE\n";
-
-    CSR storage("./graph.gl");
+    // Setup Benchmark Parameters
+    const size_t NUM_NODES = 100000; // Must match your generated graph size
+    const size_t WALK_LENGTH = 10;
+    const size_t WALKS_PER_NODE = 1; 
     
-    // for performance  
-    // first loop 
-    for(int i = 0; i < 1e6; i++){
-        size_t deg = 0;
-        for(size_t nodeId = 0; nodeId < 6; nodeId++){
-            deg += storage.get_degree(nodeId);
-            auto edges = storage.get_edges(nodeId);
+    std::cout << "Starting Benchmark on " << omp_get_max_threads() << " threads..." << std::endl;
+
+    auto start = std::chrono::high_resolution_clock::now();
+    
+    // The Parallel Loop
+    // #pragma omp parallel for schedule(dynamic)
+    #pragma omp parallel for
+    for (size_t i = 0; i < NUM_NODES; ++i) {
+        // Run walk for every node
+        // std::cout<<"Loop "<<i<<std::endl;
+        std::vector<size_t> walk = graph.random_walk(i, WALK_LENGTH, 1.0f, 1.0f);
+        
+        // Prevent compiler from optimizing away the code (Do something with result)
+        if (walk.size() != WALK_LENGTH) {
+            std::cerr << "Error! on this node " << i << std::endl;
         }
     }
 
-    cout<<"---FIRST RUN COMPLETED---\n";
-    // second loop Cache should be used 
-    for(int i = 0; i < 1e6; i++){
-        size_t deg = 0;
-        for(size_t nodeId = 0; nodeId < 6; nodeId++){
-            deg += storage.get_degree(nodeId);
-            auto edges = storage.get_edges(nodeId);
-        }
-    }
-    // single run
-    // auto edges = storage.get_edges(2);
-    // for(auto &&i: edges){
-    //     cout<<i<<" ";
-    // }
-    // cout<<"\n";
+    auto end = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> diff = end - start;
     
+    // Report
+    double total_steps = NUM_NODES * WALKS_PER_NODE * WALK_LENGTH;
+    std::cout << "--------------------------------" << std::endl;
+    std::cout << "Time: " << diff.count() << " seconds" << std::endl;
+    std::cout << "Throughput: " << (total_steps / diff.count()) / 1000000.0 << " M steps/sec" << std::endl;
+    std::cout << "--------------------------------" << std::endl;
+
     return 0;
 }

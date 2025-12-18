@@ -7,17 +7,27 @@
 #include <vector>
 #include <span>
 #include <unordered_map>
+#include <algorithm>
 
 class Graphlite
 {
 private:
     CSR* storage;
+    size_t MAXLRUSIZE = 1000;
 public:
     Graphlite(const char* graphPath);
     ~Graphlite();
     
+    bool isNeighbor(size_t u, size_t v);
+    size_t node2vec_step(size_t curr, size_t prev, float p, float q, const AliasTable& table);
+
     std::vector<size_t> fySampling(size_t nodeId, int k);
     std::vector<size_t> ReservoirSampling(size_t nodeId, int k);
+    std::vector<size_t> random_walk(size_t start_node, size_t length, float p, float q);
+    
+    CSR*& get_storage(){
+        return storage;
+    }
 };
 
 inline Graphlite::Graphlite(const char* graphPath){
@@ -74,5 +84,70 @@ inline std::vector<size_t> Graphlite::ReservoirSampling(size_t nodeId, int k){
     }
 
     return result;
+}
+
+// is v neighbor of u ? 
+inline bool Graphlite::isNeighbor(size_t u, size_t v){
+    
+    auto edges = storage->get_edges(u);
+    for(auto&& i: edges){
+        if(i == v) return true;
+    }
+    return false;
+}
+
+// return next step in node2vec algo
+inline size_t Graphlite::node2vec_step(size_t curr, size_t prev, float p, float q, const AliasTable& table){
+    // Rejection sampling 
+    float maxBias = std::max({1.0f,1.0f/p,1.0f/q});
+
+    while (true)
+    {
+        size_t neighbour = storage->get_edges(curr)[table.sample()];
+
+        float bias = 0.0f;
+
+        if(neighbour == prev){
+            bias = 1.0f / p;
+        }else if(isNeighbor(prev,neighbour)){
+            bias = 1.0f;
+        }else{
+            bias = 1.0f / q;
+        }
+
+        if(bias>= maxBias || RNG.rand() < (bias / maxBias)){
+            return neighbour;
+        }// else run loop again
+    }
+    
+}
+
+inline std::vector<size_t> Graphlite::random_walk(size_t start_node, size_t length, float p, float q){
+
+    static thread_local LRUTable lruCache(MAXLRUSIZE);
+
+    size_t next,curr = start_node,prev;
+
+    std::vector<size_t> walk;
+    walk.reserve(length);
+    walk.push_back(curr);
+
+    for (size_t i = 1; i < length; i++)
+    {
+        size_t degree = storage->get_degree(curr);
+        if (degree == 0) break; // Dead end
+
+        auto table = lruCache.get_alias_table(curr,storage->get_degree(curr));
+        if(i == 1){
+            next = storage->get_edges(curr)[table.sample()];
+        }else {
+            next = node2vec_step(curr,prev,p,q,table);
+        }
+        prev = curr;
+        curr = next;
+        walk.push_back(next);
+    }
+
+    return walk;
 }
 #endif
