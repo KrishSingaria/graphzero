@@ -1,0 +1,20 @@
+[build-system]
+requires = ["scikit-build-core", "nanobind"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "graphzero"
+version = "0.1.0"
+description = "High-performance Zero-Copy Graph Engine"
+authors = [{ name = "Krish", email = "krishsingaria2005@gmail.com" }]
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "numpy",
+    "torch"
+]
+
+[tool.scikit-build]
+cmake.version = ">=3.15"
+logging.level = "INFO"
+cmake.build-type = "Release"  # Optimizes for speed automatically

@@ -26,7 +26,7 @@ int main() {
     for (size_t i = 0; i < NUM_NODES; ++i) {
         // Run walk for every node
         // std::cout<<"Loop "<<i<<std::endl;
-        std::vector<size_t> walk = graph.random_walk(i, WALK_LENGTH, 1.0f, 1.0f);
+        std::vector<size_t> walk = graph.randomWalk(i, WALK_LENGTH, 1.0f, 1.0f);
         
         // Prevent compiler from optimizing away the code (Do something with result)
         if (walk.size() != WALK_LENGTH) {

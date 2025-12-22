@@ -1,45 +1,54 @@
-#ifndef GRAPHLITE_H
-#define GRAPHLITE_H
+#ifndef GRAPHZERO_H
+#define GRAPHZERO_H
 #include "ThreadLocalRNG.hpp"
 #include "CSR.hpp"
 #include "MemoryMap.hpp"
 #include "AliasTable.hpp"
+#include <omp.h> 
 #include <vector>
 #include <span>
 #include <unordered_map>
 #include <algorithm>
 
-class Graphlite
+class Graphzero
 {
 private:
     CSR* storage;
     size_t MAXLRUSIZE = 1000;
 public:
-    Graphlite(const char* graphPath);
-    ~Graphlite();
+    std::string filename;
+    Graphzero(const char* filename);
+    ~Graphzero();
     
     bool isNeighbor(size_t u, size_t v);
     size_t node2vec_step(size_t curr, size_t prev, float p, float q, const AliasTable& table);
 
     std::vector<size_t> fySampling(size_t nodeId, int k);
     std::vector<size_t> ReservoirSampling(size_t nodeId, int k);
-    std::vector<size_t> random_walk(size_t start_node, size_t length, float p, float q);
+    std::vector<size_t> randomWalk(size_t start_node, size_t length, float p, float q);
     
+    std::vector<size_t> batchRandomWalk(const std::vector<size_t>& startNodes, size_t walkLength, float p, float q);
+    std::vector<size_t> batchRandomUniformWalk(const std::vector<size_t>& startNodes, size_t walkLength);
+
     CSR*& get_storage(){
         return storage;
     }
+    size_t get_degree(size_t nodeId){
+        return storage->get_degree(nodeId);
+    }
 };
 
-inline Graphlite::Graphlite(const char* graphPath){
-    storage = new CSR(graphPath);
+inline Graphzero::Graphzero(const char* filename){
+    this->filename = filename;
+    storage = new CSR(filename);
 }
 
-inline Graphlite::~Graphlite(){
+inline Graphzero::~Graphzero(){
     delete storage;
 }
 
 // uses Fisher-Yates Shuffling Method,[Could be bad for Memory SO NOT USING IT] 
-inline std::vector<size_t> Graphlite::fySampling(size_t nodeId, int k){
+inline std::vector<size_t> Graphzero::fySampling(size_t nodeId, int k){
     if(k < 1) return {};
 
     std::span<size_t> neighbours = storage->get_edges(nodeId);
@@ -62,7 +71,7 @@ inline std::vector<size_t> Graphlite::fySampling(size_t nodeId, int k){
 }
 
 // use Reservoir Sampling Method
-inline std::vector<size_t> Graphlite::ReservoirSampling(size_t nodeId, int k){
+inline std::vector<size_t> Graphzero::ReservoirSampling(size_t nodeId, int k){
     if(k < 1) return {};
 
     std::span<size_t> neighbours = storage->get_edges(nodeId);
@@ -87,7 +96,7 @@ inline std::vector<size_t> Graphlite::ReservoirSampling(size_t nodeId, int k){
 }
 
 // is v neighbor of u ? 
-inline bool Graphlite::isNeighbor(size_t u, size_t v){
+inline bool Graphzero::isNeighbor(size_t u, size_t v){
     
     auto edges = storage->get_edges(u);
     for(auto&& i: edges){
@@ -97,7 +106,7 @@ inline bool Graphlite::isNeighbor(size_t u, size_t v){
 }
 
 // return next step in node2vec algo
-inline size_t Graphlite::node2vec_step(size_t curr, size_t prev, float p, float q, const AliasTable& table){
+inline size_t Graphzero::node2vec_step(size_t curr, size_t prev, float p, float q, const AliasTable& table){
     // Rejection sampling 
     float maxBias = std::max({1.0f,1.0f/p,1.0f/q});
 
@@ -122,7 +131,7 @@ inline size_t Graphlite::node2vec_step(size_t curr, size_t prev, float p, float 
     
 }
 
-inline std::vector<size_t> Graphlite::random_walk(size_t start_node, size_t length, float p, float q){
+inline std::vector<size_t> Graphzero::randomWalk(size_t start_node, size_t length, float p, float q){
 
     static thread_local LRUTable lruCache(MAXLRUSIZE);
 
@@ -149,5 +158,30 @@ inline std::vector<size_t> Graphlite::random_walk(size_t start_node, size_t leng
     }
 
     return walk;
+}
+
+//keep p = 1.0f and q = 1.0f for default values.
+inline std::vector<size_t> Graphzero::batchRandomWalk(const std::vector<size_t>& startNodes, size_t walkLength, float p, float q){
+    std::vector<size_t> results;
+    results.reserve(walkLength*startNodes.size());
+
+    #pragma omp parallel for
+    for(size_t startNode: startNodes){
+        std::vector<size_t> walk = randomWalk(startNode,walkLength,p,q);
+        results.insert(results.end(),walk.begin(),walk.end()); // extend the results 
+    }
+    return results;
+}
+
+inline std::vector<size_t> Graphzero::batchRandomUniformWalk(const std::vector<size_t>& startNodes, size_t walkLength){
+    std::vector<size_t> results;
+    results.reserve(walkLength*startNodes.size());
+
+    #pragma omp parallel for
+    for(size_t startNode: startNodes){
+        std::vector<size_t> walk = ReservoirSampling(startNode,walkLength);
+        results.insert(results.end(),walk.begin(),walk.end()); // extend the results 
+    }
+    return results;
 }
 #endif
