@@ -4,6 +4,7 @@
 #include <nanobind/stl/tuple.h>
 #include <nanobind/stl/string.h>
 #include "Graphzero.hpp"
+#include "csrFilegen.hpp"
 #include <vector>
 namespace nb = nanobind;
 
@@ -90,5 +91,12 @@ NB_MODULE(graphzero,m) {
             return new Graphzero(filename.c_str());
         })
         ;
-
+    
+    // convert csv to gl 
+    m.def("convert_csv_to_gl", &convert_csv,
+        "Convert a CSV edge list to GraphZero binary format (.gl)",
+        nb::arg("csv_path"), 
+        nb::arg("out_path"), 
+        nb::arg("directed") = false,
+        nb::call_guard<nb::gil_scoped_release>());
 }

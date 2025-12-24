@@ -165,23 +165,35 @@ inline std::vector<size_t> Graphzero::batchRandomWalk(const std::vector<size_t>&
     std::vector<size_t> results;
     results.reserve(walkLength*startNodes.size());
 
+    // set only for random walks 
+    storage->set_access_pattern(true);
+
     #pragma omp parallel for
     for(size_t startNode: startNodes){
         std::vector<size_t> walk = randomWalk(startNode,walkLength,p,q);
         results.insert(results.end(),walk.begin(),walk.end()); // extend the results 
     }
+
+    // reset
+    storage->set_access_pattern(false);
     return results;
 }
 
 inline std::vector<size_t> Graphzero::batchRandomUniformWalk(const std::vector<size_t>& startNodes, size_t walkLength){
     std::vector<size_t> results;
     results.reserve(walkLength*startNodes.size());
+    
+    // set only for random walks 
+    storage->set_access_pattern(true);
 
     #pragma omp parallel for
     for(size_t startNode: startNodes){
         std::vector<size_t> walk = ReservoirSampling(startNode,walkLength);
         results.insert(results.end(),walk.begin(),walk.end()); // extend the results 
     }
+
+    // reset
+    storage->set_access_pattern(false);
     return results;
 }
 #endif

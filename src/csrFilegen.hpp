@@ -1,163 +1,169 @@
 #ifndef CSRFILEGEN_H
 #define CSRFILEGEN_H
-#include <vector>
-#include <fcntl.h>
-#include <sys/stat.h>
-#include <unistd.h>
-#include <random>
-#include <stdexcept>
 #include <iostream>
-#include <algorithm>
+#include <vector>
+#include <string>
+#include <fstream>      // For std::ofstream
+#include <random>       // For RNG
+#include <algorithm>    // For std::sort
+#include <sys/mman.h>   // For mmap (Large Graph)
+#include <unistd.h>     // For ftruncate, close
+#include <fcntl.h>      // For open constants
+#include <cstdint>      // For uint64_t
+#include <cstring>      // For memset
+#include <omp.h>
+#include <charconv>
 #include "MemoryMap.hpp"
 
-void generateBinary(std::vector<size_t>& nnzRow,std::vector<size_t>& colPtr,const char* pathFileName){
-    int fd = open(pathFileName,O_CREAT | O_WRONLY | O_TRUNC | O_APPEND, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
-    if(fd == -1){
-        throw std::runtime_error("File open failed while generating binaray");
-    }
+// Helper for alignment
+inline uint64_t align64(uint64_t val) {
+    return (val + 63) & ~63; 
+}
 
+// ---------------------------------------------------------
+// 1. SMALL/MEDIUM GENERATOR (Use std::ofstream)
+// ---------------------------------------------------------
+void generateBinary(std::vector<size_t>& nnzRow, std::vector<size_t>& colPtr, const char* pathFileName){
+    
+    // 1. Prepare Header
     GraphHeader graphData; 
     graphData.sizeofnnzRow = nnzRow.size() * sizeof(size_t);
     graphData.sizeofcolPtr = colPtr.size() * sizeof(size_t);
+    graphData.num_nodes = nnzRow.size() - 1;
+    graphData.num_edges = colPtr.size();
+    graphData.flags = 0; 
 
-    graphData.offset_nnz = sizeof(GraphHeader);
-    graphData.offset_col = sizeof(GraphHeader) + graphData.sizeofnnzRow;
-
-    if(write(fd,&graphData,sizeof(GraphHeader)) == -1){
-        close(fd);
-        throw std::runtime_error("could not write Graph Header");  
-    }
-    // Write everything at once for nnzRow
-    if (write(fd, nnzRow.data(), graphData.sizeofnnzRow) == -1) {
-        close(fd);
-        throw std::runtime_error("could not write nnzRow");
-    }
-    // Write everything at once for colPtr
-    if (write(fd, colPtr.data(), graphData.sizeofcolPtr) == -1) {
-        close(fd);
-        throw std::runtime_error("could not write colPtr");
-    }
+    // 2. Calculate Offsets (With Alignment)
+    graphData.offset_nnz = sizeof(GraphHeader); // Header is 64 bytes, so this is aligned
     
-    close(fd);
-    return;
+    uint64_t end_of_nnz = graphData.offset_nnz + graphData.sizeofnnzRow;
+    graphData.offset_col = align64(end_of_nnz); // Align the start of next array
+
+    // 3. Open File (Standard C++)
+    std::ofstream outfile(pathFileName, std::ios::binary);
+    if (!outfile) {
+        throw std::runtime_error("File open failed: " + std::string(pathFileName));
+    }
+
+    // 4. Write Header
+    outfile.write((char*)&graphData, sizeof(GraphHeader));
+
+    // 5. Write nnzRow
+    outfile.write((char*)nnzRow.data(), graphData.sizeofnnzRow);
+
+    // 6. Write Padding (Zeros)
+    size_t padding_needed = graphData.offset_col - end_of_nnz;
+    if (padding_needed > 0) {
+        std::vector<char> zeros(padding_needed, 0);
+        outfile.write(zeros.data(), padding_needed);
+    }
+
+    // 7. Write colPtr (Now perfectly aligned)
+    outfile.write((char*)colPtr.data(), graphData.sizeofcolPtr);
+    
+    outfile.close();
+    std::cout << "Successfully generated " << pathFileName << " with 64-byte alignment." << std::endl;
 }
 
-// for bigger graphs Direct generation 
-// Generates massive graphs directly to disk using mmap (OOM-Proof)
+
+// ---------------------------------------------------------
+// 2. LARGE GRAPH GENERATOR (Use mmap + Alignment)
+// ---------------------------------------------------------
 void generateLargeGraph(size_t NUM_NODES, float PROB, const char* pathFileName) {
     std::cout << "Generating graph with " << NUM_NODES << " nodes (Direct-to-Disk mode)..." << std::endl;
 
-    // ---------------------------------------------------------
-    // 1. SETUP LOCAL RNG (Deterministic)
-    // ---------------------------------------------------------
-    // We use a local engine instead of global 'RNG' to ensure we can 
-    // reset the seed exactly for Pass 2.
+    // --- SETUP RNG ---
     std::mt19937 gen(42); 
     std::uniform_real_distribution<float> dist(0.0f, 1.0f);
 
-    // ---------------------------------------------------------
-    // 2. PASS 1: SIMULATION (Count Degrees)
-    // ---------------------------------------------------------
+    // --- PASS 1: Count Degrees ---
     std::cout << "[Pass 1] Counting degrees..." << std::endl;
-    
-    // RAM Usage: NUM_NODES * 8 bytes (Tiny. 100k nodes = 0.8 MB)
     std::vector<size_t> degrees(NUM_NODES, 0);
-    size_t total_edges_count = 0; // This will be size of colPtr
+    size_t total_edges_count = 0;
 
     for (size_t i = 0; i < NUM_NODES; ++i) {
         for (size_t j = i + 1; j < NUM_NODES; ++j) {
             if (dist(gen) <= PROB) {
                 degrees[i]++;
                 degrees[j]++;
-                total_edges_count += 2; // Undirected: (i,j) and (j,i)
+                total_edges_count += 2; 
             }
         }
     }
 
-    // ---------------------------------------------------------
-    // 3. PREPARE FILE & HEADER
-    // ---------------------------------------------------------
+    // --- PREPARE HEADER & OFFSETS ---
     GraphHeader graphData;
     graphData.sizeofnnzRow = (NUM_NODES + 1) * sizeof(size_t);
     graphData.sizeofcolPtr = total_edges_count * sizeof(size_t);
-    graphData.offset_nnz = sizeof(GraphHeader);
-    graphData.offset_col = sizeof(GraphHeader) + graphData.sizeofnnzRow;
+    graphData.num_nodes = NUM_NODES;
+    graphData.num_edges = total_edges_count;
+    graphData.flags = 0;
 
-    size_t fileSize = sizeof(GraphHeader) + graphData.sizeofnnzRow + graphData.sizeofcolPtr;
+    // ALIGNMENT LOGIC
+    graphData.offset_nnz = sizeof(GraphHeader);
+    uint64_t end_of_nnz = graphData.offset_nnz + graphData.sizeofnnzRow;
+    graphData.offset_col = align64(end_of_nnz); // Round up to next 64 bytes
+
+    // Total File Size must include the gap/padding
+    size_t fileSize = graphData.offset_col + graphData.sizeofcolPtr;
 
     std::cout << "[Disk] Allocating " << fileSize / (1024 * 1024) << " MB..." << std::endl;
 
-    // Open and Resize File
+    // --- OPEN & RESIZE FILE ---
     int fd = open(pathFileName, O_RDWR | O_CREAT | O_TRUNC, 0666);
     if (fd == -1) throw std::runtime_error("Failed to open file");
     
+    // ftruncate fills new space with zeros (Self-padding!)
     if (ftruncate(fd, fileSize) == -1) {
         close(fd);
         throw std::runtime_error("Failed to resize file (Disk full?)");
     }
 
-    // Map File to Memory
+    // --- MMAP ---
     char* map_addr = (char*)mmap(nullptr, fileSize, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     if (map_addr == MAP_FAILED) {
         close(fd);
         throw std::runtime_error("mmap failed");
     }
 
-    // ---------------------------------------------------------
-    // 4. WRITE HEADER & nnzRow (Prefix Sum)
-    // ---------------------------------------------------------
-    // Define Pointers into the file map
+    // --- WRITE HEADER ---
     GraphHeader* header_ptr = (GraphHeader*)map_addr;
-    size_t* nnzRow_ptr = (size_t*)(map_addr + graphData.offset_nnz);
-    size_t* colPtr_ptr = (size_t*)(map_addr + graphData.offset_col);
-
-    // Write Header
     *header_ptr = graphData; 
 
-    // Calculate & Write nnzRow directly to file
-    // We also keep 'current_offset' in RAM to know where to write neighbors in Pass 2
+    // --- SET POINTERS (Using Aligned Offsets) ---
+    size_t* nnzRow_ptr = (size_t*)(map_addr + graphData.offset_nnz);
+    size_t* colPtr_ptr = (size_t*)(map_addr + graphData.offset_col); // Jumps over padding automatically
+
+    // --- WRITE nnzRow (Prefix Sum) ---
     std::vector<size_t> current_write_pos(NUM_NODES); 
     size_t running_sum = 0;
 
     nnzRow_ptr[0] = 0;
     for (size_t i = 0; i < NUM_NODES; ++i) {
-        current_write_pos[i] = running_sum; // Start of i's neighbors in colPtr
+        current_write_pos[i] = running_sum; 
         running_sum += degrees[i];
-        nnzRow_ptr[i + 1] = running_sum;    // End of i's neighbors
+        nnzRow_ptr[i + 1] = running_sum;    
     }
 
-    // ---------------------------------------------------------
-    // 5. PASS 2: EXECUTION (Write Edges)
-    // ---------------------------------------------------------
+    // --- PASS 2: WRITE EDGES ---
     std::cout << "[Pass 2] Writing edges..." << std::endl;
-    
-    // RESET GENERATOR TO EXACT SAME SEED
-    gen.seed(42); 
+    gen.seed(42); // Reset RNG
 
     for (size_t i = 0; i < NUM_NODES; ++i) {
         for (size_t j = i + 1; j < NUM_NODES; ++j) {
             if (dist(gen) <= PROB) {
-                // Edge exists: Write to file via pointers
-                
-                // Add j to i's list
                 size_t pos_i = current_write_pos[i]++;
                 colPtr_ptr[pos_i] = j;
 
-                // Add i to j's list
                 size_t pos_j = current_write_pos[j]++;
                 colPtr_ptr[pos_j] = i;
             }
         }
-        // Optional Progress bar for huge graphs
         if (i % 1000 == 0) std::cout << "\rProgress: " << (size_t)((float)i/NUM_NODES * 100) << "%" << std::flush;
     }
     std::cout << std::endl;
 
-    // ---------------------------------------------------------
-    // 6. SORT NEIGHBORS 
-    // ---------------------------------------------------------
-    // CSR usually expects sorted neighbors for faster intersection.
-    // Since we are mmapped, we can sort strictly in-place on disk!
+    // --- SORTING ---
     std::cout << "[Post-Process] Sorting neighbor lists..." << std::endl;
     for(size_t i=0; i<NUM_NODES; ++i) {
         size_t start = nnzRow_ptr[i];
@@ -165,15 +171,161 @@ void generateLargeGraph(size_t NUM_NODES, float PROB, const char* pathFileName) 
         std::sort(colPtr_ptr + start, colPtr_ptr + end);
     }
 
-    // ---------------------------------------------------------
-    // 7. CLEANUP
-    // ---------------------------------------------------------
-    if (msync(map_addr, fileSize, MS_SYNC) == -1) {
-        std::cerr << "Warning: msync failed" << std::endl;
-    }
+    // --- CLEANUP ---
+    msync(map_addr, fileSize, MS_SYNC);
     munmap(map_addr, fileSize);
     close(fd);
-    std::cout << "Success! Graph saved to " << pathFileName << std::endl;
+    std::cout << "Success! Aligned Graph saved to " << pathFileName << std::endl;
+}
+
+// ===============================
+// edges csv to .gl file generator  
+// ===============================
+
+// Fast CSV Line Parser (extracts u, v)
+void parse_line(char* line, uint64_t& u, uint64_t& v) {
+    // Find comma
+    char* comma = strchr(line, ',');
+    if (!comma) return;
+    *comma = '\0'; // Split string temporarily
+    
+    u = std::atoll(line);
+    v = std::atoll(comma + 1);
+}
+
+void convert_csv(const std::string& csv_path, const std::string& out_path, bool directed) {
+    std::cout << "Starting Conversion: " << csv_path << std::endl;
+
+    // --- PASS 1: DISCOVERY ---
+    std::cout << "[Pass 1] Scanning for Max Node ID and Degrees..." << std::endl;
+    FILE* f = fopen(csv_path.c_str(), "r");
+    if (!f) throw std::runtime_error("Could not open CSV");
+
+    char buffer[1024];
+    uint64_t max_node = 0;
+    uint64_t edge_count = 0;
+    
+    // Skip header if exists (simple heuristic: check if first char is digit)
+    if (fgets(buffer, sizeof(buffer), f)) {
+        if (!isdigit(buffer[0])) {
+            std::cout << "Skipping header: " << buffer;
+        } else {
+            rewind(f); // Go back if it was data
+        }
+    }
+
+    // We need a dynamic array for degrees because we don't know N yet.
+    // Ideally user provides N, but we can resize.
+    std::vector<uint64_t> degrees;
+    
+    while (fgets(buffer, sizeof(buffer), f)) {
+        uint64_t u, v;
+        parse_line(buffer, u, v);
+        
+        // Resize if we see a new biggest node
+        if (u >= degrees.size() || v >= degrees.size()) {
+            size_t new_max = std::max(u, v) + 1;
+            if (new_max > degrees.size()) {
+                degrees.resize(std::max(new_max, degrees.size() * 2), 0);
+            }
+        }
+        
+        degrees[u]++;
+        if (!directed) degrees[v]++;
+        
+        edge_count++;
+        if (edge_count % 1000000 == 0) std::cout << "\rScanned " << edge_count << " edges..." << std::flush;
+    }
+    
+    uint64_t num_nodes = degrees.size();
+    // Trim excess capacity
+    degrees.shrink_to_fit();
+    
+    std::cout << "\nFound Nodes: " << num_nodes << ", Edges: " << edge_count 
+              << (directed ? " (Directed)" : " (Undirected)") << std::endl;
+
+    // --- PREPARE OUTPUT FILE ---
+    uint64_t total_written_edges = directed ? edge_count : edge_count * 2;
+    
+    GraphHeader header;
+    header.num_nodes = num_nodes;
+    header.num_edges = total_written_edges;
+    header.sizeofnnzRow = (num_nodes + 1) * sizeof(uint64_t);
+    header.sizeofcolPtr = total_written_edges * sizeof(uint64_t);
+    header.flags = 0;
+
+    header.offset_nnz = sizeof(GraphHeader); // 64 bytes
+    uint64_t end_nnz = header.offset_nnz + header.sizeofnnzRow;
+    header.offset_col = align64(end_nnz);
+
+    size_t file_size = header.offset_col + header.sizeofcolPtr;
+
+    std::cout << "[Disk] Creating " << file_size / (1024*1024) << "MB binary file..." << std::endl;
+    
+    int fd = open(out_path.c_str(), O_RDWR | O_CREAT | O_TRUNC, 0666);
+    if (ftruncate(fd, file_size) == -1) throw std::runtime_error("Resize failed");
+    
+    char* map_addr = (char*)mmap(NULL, file_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    if (map_addr == MAP_FAILED) throw std::runtime_error("MMap failed");
+
+    // --- WRITE HEADER & POINTERS ---
+    memcpy(map_addr, &header, sizeof(header));
+    
+    uint64_t* indptr = (uint64_t*)(map_addr + header.offset_nnz);
+    uint64_t* indices = (uint64_t*)(map_addr + header.offset_col);
+
+    // Build Prefix Sum (Indptr)
+    // We also need a tracker for Pass 2 to know "where to write next" for each node
+    std::vector<uint64_t> write_offsets(num_nodes);
+    uint64_t running_sum = 0;
+    
+    indptr[0] = 0;
+    for (size_t i = 0; i < num_nodes; ++i) {
+        write_offsets[i] = running_sum;
+        running_sum += degrees[i];
+        indptr[i+1] = running_sum;
+    }
+
+    // --- PASS 2: PLACEMENT ---
+    std::cout << "[Pass 2] Writing edges to disk..." << std::endl;
+    rewind(f); // Reset CSV reader
+    
+    // Skip header again
+    if (fgets(buffer, sizeof(buffer), f) && isdigit(buffer[0])) rewind(f);
+
+    size_t processed = 0;
+    while (fgets(buffer, sizeof(buffer), f)) {
+        uint64_t u, v;
+        parse_line(buffer, u, v);
+
+        // Place u -> v
+        uint64_t offset = write_offsets[u]++;
+        indices[offset] = v;
+
+        if (!directed) {
+            // Place v -> u
+            offset = write_offsets[v]++;
+            indices[offset] = u;
+        }
+        processed++;
+        if (processed % 1000000 == 0) std::cout << "\rWritten " << processed << " edges..." << std::flush;
+    }
+    
+    fclose(f);
+    std::cout << "\n[Post-Process] Sorting neighbor lists..." << std::endl;
+    
+    //Parallel Sort (using OpenMP if available)
+    #pragma omp parallel for
+    for (size_t i = 0; i < num_nodes; ++i) {
+        std::sort(indices + indptr[i], indices + indptr[i+1]);
+    }
+
+    // Cleanup
+    msync(map_addr, file_size, MS_SYNC);
+    munmap(map_addr, file_size);
+    close(fd);
+    
+    std::cout << "Conversion Complete: " << out_path << std::endl;
 }
 
 #endif

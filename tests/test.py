@@ -3,6 +3,9 @@ import torch
 import numpy as np
 import time
 
+print("CSV to .gl conversion test")
+gz.convert_csv_to_gl("/home/krish/graphzero/tests/dummy.csv","dummy.gl",directed = True)
+
 print("Loading Graph...")
 g = gz.Graph("/home/krish/graphzero/graph-100T.gl")
 
@@ -49,3 +52,4 @@ print(walks_tensor[0:5]) # Print first 5 walks
 # Modifying the tensor should crash if memory was freed (safety check)
 walks_tensor[0][0] = 99999
 print("Modification successful (Memory is alive).")
+# time.sleep(100) # for inferencing

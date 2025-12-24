@@ -9,7 +9,7 @@
 #include <stdexcept>
 
 // only here
-const size_t MAGIC_NUM = 8388354976772092519; // 'graphlit' converted in size_t
+const uint64_t MAGIC_NUM = 8388354976772092519; // 'graphlit' converted in size_t
 
 struct GraphHeader {
     uint64_t MAGIC_NUM 
@@ -18,7 +18,10 @@ struct GraphHeader {
     uint64_t sizeofcolPtr;      // Needed to know size of col_indices (M)
     uint64_t offset_nnz;        // Byte offset where nnzRow start
     uint64_t offset_col;        // Byte offset where colPtr start
-};
+    uint64_t num_nodes;         // Explicit count (N)
+    uint64_t num_edges;         // Explicit count (M)
+    uint64_t flags;     // flags later user
+}; // 64 byte header perfect AVX-512 alignment
 
 class MemoryMap
 {
@@ -55,6 +58,9 @@ inline MemoryMap::MemoryMap(const char* path){
         close(fd); // Clean up the fd we just opened
         throw std::runtime_error("mmap failed");
     }
+
+    // memory advise to use huge pages
+    madvise(mappedptr,length, MADV_HUGEPAGE);
 }
 
 inline MemoryMap::~MemoryMap(){
@@ -69,7 +75,7 @@ inline MemoryMap::~MemoryMap(){
     }
 
     fd = -1;
-    length = 0;   
+    length = 0;
 }
 inline void* MemoryMap::get_data(){
     // get data pointer 

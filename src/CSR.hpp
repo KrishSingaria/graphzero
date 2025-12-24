@@ -3,7 +3,6 @@
 #include "MemoryMap.hpp"
 #include <span>
 #include <cstddef>
-#include <sys/mman.h>
 
 class CSR{
     // size_t is the type used for every data!!
@@ -13,9 +12,13 @@ private:
     // defined as nnzRow[i] = nnzRow[i-1] + no of non zero row entries of ith row
     size_t* nnzRow; 
     size_t  sizeofnnzRow; // size in bytes
+    size_t  N; // num of nodes
 
     size_t* colPtr;
     size_t  sizeofcolPtr; // size in bytes
+    size_t  M; // num of edges
+
+    size_t flags;
 public:
     CSR(const char* graphPath);
     ~CSR();
@@ -42,6 +45,9 @@ inline CSR::CSR(const char* graphPath){
     }
     this->sizeofnnzRow = header.sizeofnnzRow;
     this->sizeofcolPtr = header.sizeofcolPtr;
+    this->N = header.num_nodes;
+    this->M = header.num_edges;
+    this->flags = header.flags;
 
     this->nnzRow = reinterpret_cast<size_t*>(this->graphMap->get_data()) + header.offset_nnz/sizeof(size_t);
     this->colPtr = reinterpret_cast<size_t*>(this->graphMap->get_data()) + header.offset_col/sizeof(size_t);
