@@ -4,10 +4,10 @@ import numpy as np
 import time
 
 print("CSV to .gl conversion test")
-gz.convert_csv_to_gl("/home/krish/graphzero/tests/dummy.csv","dummy.gl",directed = True)
+gz.convert_csv_to_gl("dummy.csv","dummy.gl",directed = True)
 
 print("Loading Graph...")
-g = gz.Graph("/home/krish/graphzero/graph-100T.gl")
+g = gz.Graph("graph-100T.gl") # graph
 
 # 1. Create a batch of start nodes (e.g., 10,000 nodes)
 start_nodes = list(range(10000)) # Simple list of 0..9999

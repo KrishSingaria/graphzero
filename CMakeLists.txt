@@ -14,6 +14,7 @@ nanobind_add_module(graphzero
 # 3. Compiler Settings
 target_include_directories(graphzero PRIVATE src)
 target_compile_features(graphzero PUBLIC cxx_std_20)
+target_compile_definitions(graphzero PRIVATE NOMINMAX)
 
 # Link OpenMP if found (Essential for your Day 20 speedup)
 if(OpenMP_CXX_FOUND)

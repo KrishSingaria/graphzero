@@ -2,11 +2,17 @@
 #define MEMORYMAP_H
 #include <string>
 #include <cstddef>
-#include <fcntl.h>
-#include <unistd.h>
-#include <sys/stat.h>
-#include <sys/mman.h>
 #include <stdexcept>
+#include <cstdint>
+
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <sys/mman.h>
+#endif
 
 // only here
 const uint64_t MAGIC_NUM = 8388354976772092519; // 'graphlit' converted in size_t
@@ -26,9 +32,12 @@ struct GraphHeader {
 class MemoryMap
 {
 private:
+    #ifndef _WIN32
     int fd; // file descriptor
-    size_t length;
     struct stat st;
+    #endif
+
+    size_t length;
     void* mappedptr;
 public:
     // constructor accquires, no flags currently 
@@ -43,7 +52,36 @@ public:
 
 inline MemoryMap::MemoryMap(const char* path){
     // acquires resource/bin file on the Path given
+    #ifdef _WIN32
+    HANDLE hFile = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if(hFile == INVALID_HANDLE_VALUE) { 
+        CloseHandle(hFile);
+        throw std::runtime_error("File open failed"); 
+    }
     
+    LARGE_INTEGER fsize;
+    if((GetFileSizeEx(hFile,&fsize)) == 0){
+        CloseHandle(hFile);
+        throw std::runtime_error("can not get file size ");
+    }
+    length = fsize.QuadPart;
+    
+    HANDLE hMap = CreateFileMappingA(hFile,NULL,PAGE_READONLY, 0,0,NULL);
+    if(hMap == NULL) { 
+        CloseHandle(hMap);
+        CloseHandle(hFile);
+        throw std:: runtime_error("File mapping failed"); 
+    }
+
+    mappedptr = MapViewOfFile(hMap,FILE_MAP_READ, 0,0,0);
+    if(mappedptr == NULL) {
+        throw std::runtime_error("mappedptr is NULL, could not map");
+    }
+
+    CloseHandle(hMap);
+    CloseHandle(hFile);
+
+    #else // linux
     if((fd = open(path,O_RDONLY)) == -1){
         throw std::runtime_error("File open failed");
     }
@@ -61,11 +99,19 @@ inline MemoryMap::MemoryMap(const char* path){
 
     // memory advise to use huge pages
     madvise(mappedptr,length, MADV_HUGEPAGE);
+
+    #endif 
+
 }
 
 inline MemoryMap::~MemoryMap(){
     // release resource, destory itself
-
+    #ifdef _WIN32
+    if (mappedptr != nullptr) {
+        UnmapViewOfFile(mappedptr);
+        mappedptr = nullptr;
+    }
+    #else// linux
     if(mappedptr != MAP_FAILED && mappedptr != nullptr){
         munmap(mappedptr,length);
     }
@@ -73,9 +119,10 @@ inline MemoryMap::~MemoryMap(){
     if(fd != -1){
         close(fd);
     }
-
     fd = -1;
+    
     length = 0;
+    #endif 
 }
 inline void* MemoryMap::get_data(){
     // get data pointer 

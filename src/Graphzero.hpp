@@ -108,7 +108,7 @@ inline bool Graphzero::isNeighbor(size_t u, size_t v){
 // return next step in node2vec algo
 inline size_t Graphzero::node2vec_step(size_t curr, size_t prev, float p, float q, const AliasTable& table){
     // Rejection sampling 
-    float maxBias = std::max({1.0f,1.0f/p,1.0f/q});
+    float maxBias = (std::max)({1.0f,1.0f/p,1.0f/q}); // for windows max
 
     while (true)
     {
@@ -162,16 +162,20 @@ inline std::vector<size_t> Graphzero::randomWalk(size_t start_node, size_t lengt
 
 //keep p = 1.0f and q = 1.0f for default values.
 inline std::vector<size_t> Graphzero::batchRandomWalk(const std::vector<size_t>& startNodes, size_t walkLength, float p, float q){
-    std::vector<size_t> results;
-    results.reserve(walkLength*startNodes.size());
+    std::vector<size_t> results(walkLength*startNodes.size());
 
     // set only for random walks 
     storage->set_access_pattern(true);
 
     #pragma omp parallel for
-    for(size_t startNode: startNodes){
-        std::vector<size_t> walk = randomWalk(startNode,walkLength,p,q);
-        results.insert(results.end(),walk.begin(),walk.end()); // extend the results 
+    for(signed long long i = 0; i < startNodes.size(); i++){
+        std::vector<size_t> walk = randomWalk(startNodes[i],walkLength,p,q);
+        
+        // thread safe
+        size_t offset = i*walkLength;
+        for(int j = 0; j < walk.size(); j++){
+            results[j+offset] = walk[j];
+        }
     }
 
     // reset
@@ -180,20 +184,57 @@ inline std::vector<size_t> Graphzero::batchRandomWalk(const std::vector<size_t>&
 }
 
 inline std::vector<size_t> Graphzero::batchRandomUniformWalk(const std::vector<size_t>& startNodes, size_t walkLength){
-    std::vector<size_t> results;
-    results.reserve(walkLength*startNodes.size());
+    std::vector<size_t> results(walkLength*startNodes.size());
     
     // set only for random walks 
     storage->set_access_pattern(true);
 
     #pragma omp parallel for
-    for(size_t startNode: startNodes){
-        std::vector<size_t> walk = ReservoirSampling(startNode,walkLength);
-        results.insert(results.end(),walk.begin(),walk.end()); // extend the results 
+    for(signed long long i = 0; i < startNodes.size(); i++){
+        // walking here 
+        size_t offset = i*walkLength;
+        size_t curr = startNodes[i], next;
+        results[offset] = curr;
+        for(size_t j = 1; j < walkLength; ++j){
+            auto edges = storage->get_edges(curr);
+
+            if(edges.size() == 0){
+                results[offset+j] = curr;
+                continue;
+            }
+
+            next = edges[RNG.rand_int(0,edges.size()-1)];
+            results[offset + j] = next;
+            curr = next;
+        }   
     }
 
     // reset
     storage->set_access_pattern(false);
     return results;
 }
+
+// not walk but sampling 
+// inline std::vector<size_t> Graphzero::batchRandomUniformWalk(const std::vector<size_t>& startNodes, size_t walkLength){
+//     std::vector<size_t> results;
+//     results.reserve(walkLength*startNodes.size());
+    
+//     // set only for random walks 
+//     storage->set_access_pattern(true);
+
+//     #pragma omp parallel for
+//     for(size_t i = 0; i < num_nodes; i++){
+//         std::vector<size_t> walk = ReservoirSampling(startNode,walkLength);
+        
+//         // thread safe
+//         size_t offset = i*walkLength;
+//         for(int j = 0; j < walk.size(); j++){
+//             results[j+offset] = walk[j];
+//         }
+//     }
+
+//     // reset
+//     storage->set_access_pattern(false);
+//     return results;
+// }
 #endif

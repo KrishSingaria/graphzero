@@ -1,18 +1,26 @@
 #ifndef CSRFILEGEN_H
 #define CSRFILEGEN_H
+
 #include <iostream>
 #include <vector>
 #include <string>
 #include <fstream>      // For std::ofstream
 #include <random>       // For RNG
 #include <algorithm>    // For std::sort
-#include <sys/mman.h>   // For mmap (Large Graph)
-#include <unistd.h>     // For ftruncate, close
-#include <fcntl.h>      // For open constants
 #include <cstdint>      // For uint64_t
-#include <cstring>      // For memset
-#include <omp.h>
-#include <charconv>
+#include <cstring>      // For memset, strchr
+#include <charconv>     // For std::from_chars (Modern C++17)
+
+// --- PLATFORM DEPENDENT INCLUDES ---
+#ifdef _WIN32
+    #include <windows.h>
+#else
+    #include <sys/mman.h>   // For mmap (Large Graph)
+    #include <unistd.h>     // For ftruncate, close
+    #include <fcntl.h>      // For open constants
+    #include <omp.h>        // Linux OpenMP
+#endif
+
 #include "MemoryMap.hpp"
 
 // Helper for alignment
@@ -23,6 +31,7 @@ inline uint64_t align64(uint64_t val) {
 // ---------------------------------------------------------
 // 1. SMALL/MEDIUM GENERATOR (Use std::ofstream)
 // ---------------------------------------------------------
+// No OS-specific changes needed here; std::ofstream is cross-platform.
 void generateBinary(std::vector<size_t>& nnzRow, std::vector<size_t>& colPtr, const char* pathFileName){
     
     // 1. Prepare Header
@@ -34,7 +43,7 @@ void generateBinary(std::vector<size_t>& nnzRow, std::vector<size_t>& colPtr, co
     graphData.flags = 0; 
 
     // 2. Calculate Offsets (With Alignment)
-    graphData.offset_nnz = sizeof(GraphHeader); // Header is 64 bytes, so this is aligned
+    graphData.offset_nnz = sizeof(GraphHeader); // Header is 64 bytes
     
     uint64_t end_of_nnz = graphData.offset_nnz + graphData.sizeofnnzRow;
     graphData.offset_col = align64(end_of_nnz); // Align the start of next array
@@ -109,22 +118,44 @@ void generateLargeGraph(size_t NUM_NODES, float PROB, const char* pathFileName) 
 
     std::cout << "[Disk] Allocating " << fileSize / (1024 * 1024) << " MB..." << std::endl;
 
-    // --- OPEN & RESIZE FILE ---
-    int fd = open(pathFileName, O_RDWR | O_CREAT | O_TRUNC, 0666);
-    if (fd == -1) throw std::runtime_error("Failed to open file");
-    
-    // ftruncate fills new space with zeros (Self-padding!)
-    if (ftruncate(fd, fileSize) == -1) {
-        close(fd);
-        throw std::runtime_error("Failed to resize file (Disk full?)");
-    }
+    char* map_addr = nullptr;
 
-    // --- MMAP ---
-    char* map_addr = (char*)mmap(nullptr, fileSize, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    if (map_addr == MAP_FAILED) {
-        close(fd);
-        throw std::runtime_error("mmap failed");
-    }
+    // --- OS SPECIFIC FILE CREATION & MAPPING ---
+    #ifdef _WIN32
+        // Windows Implementation
+        HANDLE hFile = CreateFileA(pathFileName, GENERIC_READ | GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+        if (hFile == INVALID_HANDLE_VALUE) throw std::runtime_error("Failed to create file (Windows)");
+
+        // Resize file
+        LARGE_INTEGER li;
+        li.QuadPart = fileSize;
+        if (!SetFilePointerEx(hFile, li, NULL, FILE_BEGIN)) { CloseHandle(hFile); throw std::runtime_error("Failed to set file pointer"); }
+        if (!SetEndOfFile(hFile)) { CloseHandle(hFile); throw std::runtime_error("Failed to resize file"); }
+
+        // Create Mapping
+        HANDLE hMap = CreateFileMappingA(hFile, NULL, PAGE_READWRITE, 0, 0, NULL);
+        if (hMap == NULL) { CloseHandle(hFile); throw std::runtime_error("Failed to create mapping"); }
+
+        // Map View
+        map_addr = (char*)MapViewOfFile(hMap, FILE_MAP_WRITE, 0, 0, 0);
+        if (map_addr == NULL) { CloseHandle(hMap); CloseHandle(hFile); throw std::runtime_error("MapViewOfFile failed"); }
+    #else
+        // Linux Implementation
+        int fd = open(pathFileName, O_RDWR | O_CREAT | O_TRUNC, 0666);
+        if (fd == -1) throw std::runtime_error("Failed to open file");
+        
+        // ftruncate fills new space with zeros
+        if (ftruncate(fd, fileSize) == -1) {
+            close(fd);
+            throw std::runtime_error("Failed to resize file (Disk full?)");
+        }
+
+        map_addr = (char*)mmap(nullptr, fileSize, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+        if (map_addr == MAP_FAILED) {
+            close(fd);
+            throw std::runtime_error("mmap failed");
+        }
+    #endif
 
     // --- WRITE HEADER ---
     GraphHeader* header_ptr = (GraphHeader*)map_addr;
@@ -132,7 +163,7 @@ void generateLargeGraph(size_t NUM_NODES, float PROB, const char* pathFileName) 
 
     // --- SET POINTERS (Using Aligned Offsets) ---
     size_t* nnzRow_ptr = (size_t*)(map_addr + graphData.offset_nnz);
-    size_t* colPtr_ptr = (size_t*)(map_addr + graphData.offset_col); // Jumps over padding automatically
+    size_t* colPtr_ptr = (size_t*)(map_addr + graphData.offset_col); 
 
     // --- WRITE nnzRow (Prefix Sum) ---
     std::vector<size_t> current_write_pos(NUM_NODES); 
@@ -165,6 +196,8 @@ void generateLargeGraph(size_t NUM_NODES, float PROB, const char* pathFileName) 
 
     // --- SORTING ---
     std::cout << "[Post-Process] Sorting neighbor lists..." << std::endl;
+    // On Windows MSVC, OpenMP requires special flags, stick to standard sort for compatibility
+    // #pragma omp parallel for // Uncomment if using OpenMP on Windows
     for(size_t i=0; i<NUM_NODES; ++i) {
         size_t start = nnzRow_ptr[i];
         size_t end = nnzRow_ptr[i+1];
@@ -172,9 +205,16 @@ void generateLargeGraph(size_t NUM_NODES, float PROB, const char* pathFileName) 
     }
 
     // --- CLEANUP ---
-    msync(map_addr, fileSize, MS_SYNC);
-    munmap(map_addr, fileSize);
-    close(fd);
+    #ifdef _WIN32
+        UnmapViewOfFile(map_addr);
+        CloseHandle(hMap);
+        CloseHandle(hFile);
+    #else
+        msync(map_addr, fileSize, MS_SYNC);
+        munmap(map_addr, fileSize);
+        close(fd);
+    #endif
+    
     std::cout << "Success! Aligned Graph saved to " << pathFileName << std::endl;
 }
 
@@ -182,15 +222,15 @@ void generateLargeGraph(size_t NUM_NODES, float PROB, const char* pathFileName) 
 // edges csv to .gl file generator  
 // ===============================
 
-// Fast CSV Line Parser (extracts u, v)
+// Modern C++ Fast CSV Line Parser
 void parse_line(char* line, uint64_t& u, uint64_t& v) {
     // Find comma
     char* comma = strchr(line, ',');
     if (!comma) return;
-    *comma = '\0'; // Split string temporarily
     
-    u = std::atoll(line);
-    v = std::atoll(comma + 1);
+    // C++17 std::from_chars (Faster than atoll)
+    std::from_chars(line, comma, u);
+    std::from_chars(comma + 1, line + strlen(line), v);
 }
 
 void convert_csv(const std::string& csv_path, const std::string& out_path, bool directed) {
@@ -198,6 +238,8 @@ void convert_csv(const std::string& csv_path, const std::string& out_path, bool 
 
     // --- PASS 1: DISCOVERY ---
     std::cout << "[Pass 1] Scanning for Max Node ID and Degrees..." << std::endl;
+    
+    // Standard C I/O is cross-platform and fast enough
     FILE* f = fopen(csv_path.c_str(), "r");
     if (!f) throw std::runtime_error("Could not open CSV");
 
@@ -205,28 +247,25 @@ void convert_csv(const std::string& csv_path, const std::string& out_path, bool 
     uint64_t max_node = 0;
     uint64_t edge_count = 0;
     
-    // Skip header if exists (simple heuristic: check if first char is digit)
+    // Skip header if exists
     if (fgets(buffer, sizeof(buffer), f)) {
         if (!isdigit(buffer[0])) {
             std::cout << "Skipping header: " << buffer;
         } else {
-            rewind(f); // Go back if it was data
+            rewind(f); 
         }
     }
 
-    // We need a dynamic array for degrees because we don't know N yet.
-    // Ideally user provides N, but we can resize.
     std::vector<uint64_t> degrees;
     
     while (fgets(buffer, sizeof(buffer), f)) {
         uint64_t u, v;
         parse_line(buffer, u, v);
         
-        // Resize if we see a new biggest node
         if (u >= degrees.size() || v >= degrees.size()) {
-            size_t new_max = std::max(u, v) + 1;
+            size_t new_max = (std::max)(u, v) + 1;
             if (new_max > degrees.size()) {
-                degrees.resize(std::max(new_max, degrees.size() * 2), 0);
+                degrees.resize((std::max)(new_max, degrees.size() * 2), 0);
             }
         }
         
@@ -238,7 +277,6 @@ void convert_csv(const std::string& csv_path, const std::string& out_path, bool 
     }
     
     uint64_t num_nodes = degrees.size();
-    // Trim excess capacity
     degrees.shrink_to_fit();
     
     std::cout << "\nFound Nodes: " << num_nodes << ", Edges: " << edge_count 
@@ -254,7 +292,7 @@ void convert_csv(const std::string& csv_path, const std::string& out_path, bool 
     header.sizeofcolPtr = total_written_edges * sizeof(uint64_t);
     header.flags = 0;
 
-    header.offset_nnz = sizeof(GraphHeader); // 64 bytes
+    header.offset_nnz = sizeof(GraphHeader);
     uint64_t end_nnz = header.offset_nnz + header.sizeofnnzRow;
     header.offset_col = align64(end_nnz);
 
@@ -262,11 +300,38 @@ void convert_csv(const std::string& csv_path, const std::string& out_path, bool 
 
     std::cout << "[Disk] Creating " << file_size / (1024*1024) << "MB binary file..." << std::endl;
     
-    int fd = open(out_path.c_str(), O_RDWR | O_CREAT | O_TRUNC, 0666);
-    if (ftruncate(fd, file_size) == -1) throw std::runtime_error("Resize failed");
-    
-    char* map_addr = (char*)mmap(NULL, file_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    if (map_addr == MAP_FAILED) throw std::runtime_error("MMap failed");
+    char* map_addr = nullptr;
+
+    // --- OS SPECIFIC FILE CREATION ---
+    #ifdef _WIN32
+        HANDLE hFile = CreateFileA(out_path.c_str(), GENERIC_READ | GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+        if (hFile == INVALID_HANDLE_VALUE) { fclose(f); throw std::runtime_error("Failed to create file"); }
+
+        LARGE_INTEGER li;
+        li.QuadPart = file_size;
+        if (!SetFilePointerEx(hFile, li, NULL, FILE_BEGIN)) { CloseHandle(hFile); fclose(f); throw std::runtime_error("Failed to set file pointer"); }
+        if (!SetEndOfFile(hFile)) { CloseHandle(hFile); fclose(f); throw std::runtime_error("Failed to resize file"); }
+
+        HANDLE hMap = CreateFileMappingA(hFile, NULL, PAGE_READWRITE, 0, 0, NULL);
+        if (hMap == NULL) { CloseHandle(hFile); fclose(f); throw std::runtime_error("Failed to create mapping"); }
+
+        map_addr = (char*)MapViewOfFile(hMap, FILE_MAP_WRITE, 0, 0, 0);
+        if (map_addr == NULL) { CloseHandle(hMap); CloseHandle(hFile); fclose(f); throw std::runtime_error("MapViewOfFile failed"); }
+    #else
+        int fd = open(out_path.c_str(), O_RDWR | O_CREAT | O_TRUNC, 0666);
+        if (fd == -1) { fclose(f); throw std::runtime_error("Failed to open file"); }
+
+        if (ftruncate(fd, file_size) == -1) {
+            close(fd); fclose(f);
+            throw std::runtime_error("Resize failed");
+        }
+        
+        map_addr = (char*)mmap(NULL, file_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+        if (map_addr == MAP_FAILED) {
+            close(fd); fclose(f);
+            throw std::runtime_error("MMap failed");
+        }
+    #endif
 
     // --- WRITE HEADER & POINTERS ---
     memcpy(map_addr, &header, sizeof(header));
@@ -275,7 +340,6 @@ void convert_csv(const std::string& csv_path, const std::string& out_path, bool 
     uint64_t* indices = (uint64_t*)(map_addr + header.offset_col);
 
     // Build Prefix Sum (Indptr)
-    // We also need a tracker for Pass 2 to know "where to write next" for each node
     std::vector<uint64_t> write_offsets(num_nodes);
     uint64_t running_sum = 0;
     
@@ -288,9 +352,8 @@ void convert_csv(const std::string& csv_path, const std::string& out_path, bool 
 
     // --- PASS 2: PLACEMENT ---
     std::cout << "[Pass 2] Writing edges to disk..." << std::endl;
-    rewind(f); // Reset CSV reader
+    rewind(f); 
     
-    // Skip header again
     if (fgets(buffer, sizeof(buffer), f) && isdigit(buffer[0])) rewind(f);
 
     size_t processed = 0;
@@ -314,17 +377,23 @@ void convert_csv(const std::string& csv_path, const std::string& out_path, bool 
     fclose(f);
     std::cout << "\n[Post-Process] Sorting neighbor lists..." << std::endl;
     
-    //Parallel Sort (using OpenMP if available)
-    #pragma omp parallel for
+    // Using standard sort for portability (OpenMP requires flags)
+    // #pragma omp parallel for
     for (size_t i = 0; i < num_nodes; ++i) {
         std::sort(indices + indptr[i], indices + indptr[i+1]);
     }
 
     // Cleanup
-    msync(map_addr, file_size, MS_SYNC);
-    munmap(map_addr, file_size);
-    close(fd);
-    
+    #ifdef _WIN32
+        UnmapViewOfFile(map_addr);
+        CloseHandle(hMap);
+        CloseHandle(hFile);
+    #else
+        msync(map_addr, file_size, MS_SYNC);
+        munmap(map_addr, file_size);
+        close(fd);
+    #endif
+
     std::cout << "Conversion Complete: " << out_path << std::endl;
 }
 
