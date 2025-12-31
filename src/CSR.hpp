@@ -12,14 +12,15 @@ private:
     // defined as nnzRow[i] = nnzRow[i-1] + no of non zero row entries of ith row
     size_t* nnzRow; 
     size_t  sizeofnnzRow; // size in bytes
-    size_t  N; // num of nodes
-
+    
     size_t* colPtr;
     size_t  sizeofcolPtr; // size in bytes
-    size_t  M; // num of edges
-
+    
     size_t flags;
+    size_t  num_nodes; // num of nodes
+    size_t  num_edges; // num of edges
 public:
+    
     CSR(const char* graphPath);
     ~CSR();
 
@@ -27,11 +28,23 @@ public:
     std::span<size_t> get_edges(size_t nodeId);
 
     void set_access_pattern(bool isRandom);
+    
     // accessors
-
-    size_t* get_nnzRow();
-    size_t* get_colPtr();
+    
+    size_t* get_nnzRow(){
+        return nnzRow;
+    }
+    size_t* get_colPtr(){
+        return colPtr;
+    }
+    size_t  get_num_nodes(){
+        return num_nodes;
+    }
+    size_t  get_num_edges(){
+        return num_edges;
+    }
 };
+
 
 inline CSR::CSR(const char* graphPath){
     // constructor
@@ -45,8 +58,8 @@ inline CSR::CSR(const char* graphPath){
     }
     this->sizeofnnzRow = header.sizeofnnzRow;
     this->sizeofcolPtr = header.sizeofcolPtr;
-    this->N = header.num_nodes;
-    this->M = header.num_edges;
+    this->num_nodes = header.num_nodes;
+    this->num_edges = header.num_edges;
     this->flags = header.flags;
 
     this->nnzRow = reinterpret_cast<size_t*>(this->graphMap->get_data()) + header.offset_nnz/sizeof(size_t);
@@ -81,16 +94,6 @@ inline void CSR::set_access_pattern(bool isRandom){
         madvise(this->colPtr,this->sizeofcolPtr,MADV_SEQUENTIAL);
     }
     #endif // linux
-}
-// accessors
-
-inline size_t* CSR::get_nnzRow(){
-    // return nnzRow pointer
-    return this->nnzRow;
-}
-inline size_t* CSR::get_colPtr(){
-    // return colPtr pointer
-    return this->colPtr;
 }
 
 #endif

@@ -1,5 +1,10 @@
 .vscode/
-*.gl
-graph.gl
 venv/
+build/
+benchmark/dataset
+
 *.exe
+*.gl
+*.zip
+*.npz
+benchmark/*.csv

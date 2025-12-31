@@ -1,0 +1,39 @@
+use this for windows from root dir
+
+curl -L -C - -o benchmark/papers100M-bin.zip http://snap.stanford.edu/ogb/data/nodeproppred/papers100M-bin.zip
+
+once full zip file is downloaded run extract_edges_paper100M.py after extracting data.npz from dataset zip file, it will take time 
+
+my results. 
+for converting once to csv then to .gl binary 
+
+step 1 
+(venv) path>python benchmark\extract_edges_paper100M.py
+[1/3] Extracting edge_index from benchmark/data.npz...
+   Found internal file: edge_index.npy
+   Unzipping to disk (this will take a few minutes)...
+[2/3] Memory mapping raw file...
+   Shape: (2, 1615685872)
+   Total Edges: 1,615,685,872
+[3/3] Converting to benchmark/papers100M_edges.csv...
+100%|████████████████████████████████████████████████████████████████████████████████| 324/324 [24:37<00:00,  4.56s/chunk]
+
+✅ Success! CSV created in 1594.36s
+You can now delete benchmark/temp_edge_index.npy to free up 24GB.
+
+step 2 
+(venv) path\benchmark>python glconvert.py
+Starting Conversion: papers100M_edges.csv
+[Pass 1] Scanning for Max Node ID and Degrees...
+Scanned 1615000000 edges...
+Found Nodes: 204618826, Edges: 1615685872 (Directed)
+[Disk] Creating 13887MB binary file...
+[Pass 2] Writing edges to disk...
+Written 1615000000 edges...
+[Post-Process] Sorting neighbor lists...
+Conversion Complete: papers100M.gl
+total time 13705.34620308876 s 
+
+13705s ~ 3hr 50 mins
+
+total time 1594s + 13705s = 15299 ~ 4 hr 15 mins

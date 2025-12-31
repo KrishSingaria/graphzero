@@ -14,9 +14,12 @@ class Graphzero
 {
 private:
     CSR* storage;
-    size_t MAXLRUSIZE = 1000;
+    size_t MAXLRUSIZE = 10000;
 public:
     std::string filename;
+    size_t num_nodes;
+    size_t num_edges;
+
     Graphzero(const char* filename);
     ~Graphzero();
     
@@ -29,18 +32,18 @@ public:
     
     std::vector<size_t> batchRandomWalk(const std::vector<size_t>& startNodes, size_t walkLength, float p, float q);
     std::vector<size_t> batchRandomUniformWalk(const std::vector<size_t>& startNodes, size_t walkLength);
+    std::vector<size_t> batchRandomFanout(const std::vector<size_t>& startNodes, size_t K);
 
-    CSR*& get_storage(){
+    CSR* get_storage(){
         return storage;
-    }
-    size_t get_degree(size_t nodeId){
-        return storage->get_degree(nodeId);
     }
 };
 
 inline Graphzero::Graphzero(const char* filename){
     this->filename = filename;
     storage = new CSR(filename);
+    num_nodes = storage->get_num_nodes();
+    num_edges = storage->get_num_edges();
 }
 
 inline Graphzero::~Graphzero(){
@@ -214,27 +217,26 @@ inline std::vector<size_t> Graphzero::batchRandomUniformWalk(const std::vector<s
     return results;
 }
 
-// not walk but sampling 
-// inline std::vector<size_t> Graphzero::batchRandomUniformWalk(const std::vector<size_t>& startNodes, size_t walkLength){
-//     std::vector<size_t> results;
-//     results.reserve(walkLength*startNodes.size());
-    
-//     // set only for random walks 
-//     storage->set_access_pattern(true);
 
-//     #pragma omp parallel for
-//     for(size_t i = 0; i < num_nodes; i++){
-//         std::vector<size_t> walk = ReservoirSampling(startNode,walkLength);
-        
-//         // thread safe
-//         size_t offset = i*walkLength;
-//         for(int j = 0; j < walk.size(); j++){
-//             results[j+offset] = walk[j];
-//         }
-//     }
+inline std::vector<size_t> Graphzero::batchRandomFanout(const std::vector<size_t>& startNodes, size_t K){
+    std::vector<size_t> results(K * startNodes.size(), 0);
 
-//     // reset
-//     storage->set_access_pattern(false);
-//     return results;
-// }
+    // set only for sampling access pattern
+    storage->set_access_pattern(true);
+
+    #pragma omp parallel for
+    for (signed long long i = 0; i < (signed long long)startNodes.size(); ++i) {
+        std::vector<size_t> samples = ReservoirSampling(startNodes[i], (int)K);
+
+        // thread safe write into results
+        size_t offset = (size_t)i * K;
+        for (size_t j = 0; j < samples.size(); ++j) {
+            results[offset + j] = samples[j];
+        }
+    }
+
+    // reset
+    storage->set_access_pattern(false);
+    return results;
+}
 #endif
