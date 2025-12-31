@@ -80,8 +80,7 @@ inline MemoryMap::MemoryMap(const char* path){
 
     CloseHandle(hMap);
     CloseHandle(hFile);
-
-    #else // linux
+    #else // linux/mac
     if((fd = open(path,O_RDONLY)) == -1){
         throw std::runtime_error("File open failed");
     }
@@ -97,8 +96,10 @@ inline MemoryMap::MemoryMap(const char* path){
         throw std::runtime_error("mmap failed");
     }
 
-    // memory advise to use huge pages
-    madvise(mappedptr,length, MADV_HUGEPAGE);
+    // Only use Huge Pages on Linux. macOS don't support this flag.
+    #ifdef __linux__
+        madvise(mappedptr, length, MADV_HUGEPAGE);
+    #endif
 
     #endif 
 

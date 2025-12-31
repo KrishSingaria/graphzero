@@ -85,7 +85,7 @@ inline std::span<size_t> CSR::get_edges(size_t nodeId){
 }
 
 inline void CSR::set_access_pattern(bool isRandom){
-    #ifndef _WIN32 
+    #ifdef __linux__
     if(isRandom){
         madvise(this->nnzRow,this->sizeofnnzRow,MADV_RANDOM);
         madvise(this->colPtr,this->sizeofcolPtr,MADV_RANDOM);
@@ -93,7 +93,7 @@ inline void CSR::set_access_pattern(bool isRandom){
         madvise(this->nnzRow,this->sizeofcolPtr,MADV_SEQUENTIAL);
         madvise(this->colPtr,this->sizeofcolPtr,MADV_SEQUENTIAL);
     }
-    #endif // linux
+    #endif // linux only, no mac/windows
 }
 
 #endif

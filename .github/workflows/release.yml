@@ -11,24 +11,31 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
+        # Build on all 3 OSs
         os: [ubuntu-latest, windows-latest, macos-latest]
 
     steps:
       - uses: actions/checkout@v4
 
-      # Build the wheels
       - name: Build wheels
         uses: pypa/cibuildwheel@v2.16.5
         env:
-          # Skip old Python versions and PyPy to save time
+          # Skip old Python versions
           CIBW_SKIP: "cp36-* cp37-* cp38-* pp*"
-          # Force C++20 standard for Linux builds (Nanobind needs it)
+          
+          # Linux: Force C++20
           CIBW_ENVIRONMENT_LINUX: "CXXFLAGS='-std=c++20'"
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: cibw-wheels-${{ matrix.os }}-${{ strategy.job-index }}
-          path: ./wheelhouse/*.whl
+          
+          # macOS: Install OpenMP (libomp) before building
+          CIBW_BEFORE_ALL_MACOS: "brew install libomp"
+          
+          # macOS: Tell CMake where to find OpenMP
+          # (Homebrew puts it in a weird spot, we need to point to it)
+          CIBW_ENVIRONMENT_MACOS: >
+            CFLAGS="-Xpreprocessor -fopenmp -I$(brew --prefix libomp)/include"
+            CXXFLAGS="-Xpreprocessor -fopenmp -I$(brew --prefix libomp)/include"
+            LDFLAGS="-L$(brew --prefix libomp)/lib -lomp"
+            OpenMP_ROOT="$(brew --prefix libomp)"
 
   build_sdist:
     name: Build source distribution
