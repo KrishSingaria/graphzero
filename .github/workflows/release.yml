@@ -21,7 +21,7 @@ jobs:
         uses: pypa/cibuildwheel@v2.16.5
         env:
           # Skip old Python versions and PyPy to save time
-          CIBW_SKIP: "cp36-* cp37-* pp*"
+          CIBW_SKIP: "cp36-* cp37-* cp38-* pp*"
           # Force C++20 standard for Linux builds (Nanobind needs it)
           CIBW_ENVIRONMENT_LINUX: "CXXFLAGS='-std=c++20'"
 
