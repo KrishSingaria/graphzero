@@ -22,4 +22,4 @@ if(OpenMP_CXX_FOUND)
 endif()
 
 # 4. Installation (Critical for pip)
-install(TARGETS graphzero LIBRARY DESTINATION .)
+install(TARGETS graphzero DESTINATION graphzero)
