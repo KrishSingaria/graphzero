@@ -1,7 +1,7 @@
 from .graphzero import Graph, convert_csv_to_gl
 
 # Metadata
-__version__ = "0.1.1"
+__version__ = "0.1.2"
 __author__ = "Krish Singaria"
 __license__ = "MIT"
 
