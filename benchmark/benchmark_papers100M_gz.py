@@ -62,7 +62,7 @@ print("Running...")
 
 # Generate random start nodes across the WHOLE graph
 # (Using high numbers proves we aren't just caching the first 1MB)
-max_node_id = 204618826 # nodes for Papers100M
+max_node_id = g.num_nodes # nodes for Papers100M
 start_nodes = np.random.randint(0, max_node_id, NUM_WALKS).astype(np.uint64).tolist()
 
 t0 = time.time()

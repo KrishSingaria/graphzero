@@ -261,7 +261,7 @@ void convert_csv(const std::string& csv_path, const std::string& out_path, bool 
     while (fgets(buffer, sizeof(buffer), f)) {
         uint64_t u, v;
         parse_line(buffer, u, v);
-        
+        max_node = std::max(max_node,(std::max)(u,v));
         if (u >= degrees.size() || v >= degrees.size()) {
             size_t new_max = (std::max)(u, v) + 1;
             if (new_max > degrees.size()) {
@@ -276,8 +276,9 @@ void convert_csv(const std::string& csv_path, const std::string& out_path, bool 
         if (edge_count % 1000000 == 0) std::cout << "\rScanned " << edge_count << " edges..." << std::flush;
     }
     
+    degrees.resize(max_node + 1); 
+
     uint64_t num_nodes = degrees.size();
-    degrees.shrink_to_fit();
     
     std::cout << "\nFound Nodes: " << num_nodes << ", Edges: " << edge_count 
               << (directed ? " (Directed)" : " (Undirected)") << std::endl;
@@ -378,8 +379,8 @@ void convert_csv(const std::string& csv_path, const std::string& out_path, bool 
     std::cout << "\n[Post-Process] Sorting neighbor lists..." << std::endl;
     
     // Using standard sort for portability (OpenMP requires flags)
-    // #pragma omp parallel for
-    for (size_t i = 0; i < num_nodes; ++i) {
+    #pragma omp parallel for
+    for (signed long long i = 0; i < num_nodes; ++i) {
         std::sort(indices + indptr[i], indices + indptr[i+1]);
     }
 
