@@ -1,7 +1,9 @@
 #ifndef ALIASTABLE_H
 #define ALIASTABLE_H
 #include <vector>
+#include <span>
 #include <unordered_map>
+#include <functional>
 #include <numeric>
 #include <stdexcept>
 #include <cmath>
@@ -95,6 +97,7 @@ class LRUTable
 {
 private:
     size_t MAXCAPACITY;
+    std::function<std::span<float>(size_t)> getWeights;
     
     // Cache entry defination 
     using CacheEntry = std::pair<AliasTable, std::list<size_t>::iterator>;
@@ -103,12 +106,12 @@ private:
     //LRU queue
     std::list<size_t> lst;
 public:
-    LRUTable(size_t maxCapacity) : MAXCAPACITY(maxCapacity) {}
+    LRUTable(size_t maxCapacity, std::function<std::span<float>(size_t)> weightFunc) : MAXCAPACITY(maxCapacity), getWeights(weightFunc) {}
 
-    const AliasTable& get_alias_table(size_t nodeId,size_t nodeDegree);
+    const AliasTable& get_alias_table(size_t nodeId);
 };
 
-inline const AliasTable& LRUTable::get_alias_table(size_t nodeID,size_t nodeDegree){
+inline const AliasTable& LRUTable::get_alias_table(size_t nodeID){
     auto it = isNodePresent.find(nodeID);
     if(it != isNodePresent.end()){ // cache HIT
         
@@ -119,13 +122,9 @@ inline const AliasTable& LRUTable::get_alias_table(size_t nodeID,size_t nodeDegr
     
     // cache Miss
     
-    // Weight handled, Later -> now randomly generate the weights
-    std::vector<float> weights;
-    weights.reserve(nodeDegree);
-    for (size_t i = 0; i < nodeDegree; i++)
-    {
-        weights[i] = RNG.rand();
-    }
+    // Weights
+    std::span<float> span_w = getWeights(nodeID);
+    std::vector<float> weights(span_w.begin(),span_w.end());
     
     AliasTable newTable(weights);
 

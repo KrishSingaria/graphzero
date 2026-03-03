@@ -26,8 +26,13 @@ struct GraphHeader {
     uint64_t offset_col;        // Byte offset where colPtr start
     uint64_t num_nodes;         // Explicit count (N)
     uint64_t num_edges;         // Explicit count (M)
-    uint64_t flags;     // flags later user
+    uint64_t flags;             // flags (64 bits)
 }; // 64 byte header perfect AVX-512 alignment
+
+/*
+flags 
+bit 0: has_weights
+*/ 
 
 class MemoryMap
 {

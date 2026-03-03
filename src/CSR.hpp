@@ -14,18 +14,22 @@ private:
     size_t  sizeofnnzRow; // size in bytes
     
     size_t* colPtr;
-    size_t  sizeofcolPtr; // size in bytes
+    size_t  sizeofcolPtr;   // size in bytes
+    
+    float* weightPtr;      // same size a colPtr
     
     size_t flags;
-    size_t  num_nodes; // num of nodes
-    size_t  num_edges; // num of edges
+    size_t  num_nodes;  // num of nodes
+    size_t  num_edges;  // num of edges
 public:
+    bool has_weights;   // if the graph has weights or not, 
     
     CSR(const char* graphPath);
     ~CSR();
 
     size_t get_degree(size_t nodeId);
     std::span<size_t> get_edges(size_t nodeId);
+    std::span<float> get_weights(size_t nodeId);
 
     void set_access_pattern(bool isRandom);
     
@@ -36,6 +40,9 @@ public:
     }
     size_t* get_colPtr(){
         return colPtr;
+    }
+    float* get_weights(){
+        return weightPtr;
     }
     size_t  get_num_nodes(){
         return num_nodes;
@@ -61,9 +68,16 @@ inline CSR::CSR(const char* graphPath){
     this->num_nodes = header.num_nodes;
     this->num_edges = header.num_edges;
     this->flags = header.flags;
+    this->has_weights = (flags & 1) != 0; 
 
     this->nnzRow = reinterpret_cast<size_t*>(this->graphMap->get_data()) + header.offset_nnz/sizeof(size_t);
     this->colPtr = reinterpret_cast<size_t*>(this->graphMap->get_data()) + header.offset_col/sizeof(size_t);
+    
+    if(has_weights){
+        char* base = static_cast<char*>(this->graphMap->get_data()); // 1byte shifts
+
+        this->weightPtr = reinterpret_cast<float*>(base + header.offset_col + this->sizeofcolPtr);
+    }else this->weightPtr = nullptr;  
 }
 
 inline CSR::~CSR(){
@@ -71,6 +85,7 @@ inline CSR::~CSR(){
     delete this->graphMap;
     this->nnzRow = nullptr;
     this->colPtr = nullptr;
+    this->weightPtr = nullptr;
 }
 
 inline size_t CSR::get_degree(size_t nodeId){
@@ -82,6 +97,16 @@ inline std::span<size_t> CSR::get_edges(size_t nodeId){
     size_t* p =&this->colPtr[this->nnzRow[nodeId]];
     size_t  d = this->get_degree(nodeId);
     return std::span<size_t>(p,d);
+}
+
+inline std::span<float> CSR::get_weights(size_t nodeId){
+    // return the weights of nodeId, only valid if has_weights is true
+    if(!has_weights){
+        throw std::runtime_error("Graph does not have weights");
+    }
+    float* p =&this->weightPtr[this->nnzRow[nodeId]];
+    size_t  d = this->get_degree(nodeId);
+    return std::span<float>(p,d);
 }
 
 inline void CSR::set_access_pattern(bool isRandom){

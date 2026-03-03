@@ -19,6 +19,7 @@ public:
     std::string filename;
     size_t num_nodes;
     size_t num_edges;
+    bool has_weights;
 
     Graphzero(const char* filename);
     ~Graphzero();
@@ -44,6 +45,7 @@ inline Graphzero::Graphzero(const char* filename){
     storage = new CSR(filename);
     num_nodes = storage->get_num_nodes();
     num_edges = storage->get_num_edges();
+    has_weights = storage->has_weights;
 }
 
 inline Graphzero::~Graphzero(){
@@ -73,7 +75,7 @@ inline std::vector<size_t> Graphzero::fySampling(size_t nodeId, int k){
     return result; 
 }
 
-// use Reservoir Sampling Method
+// use Reservoir Sampling Method, without weigths
 inline std::vector<size_t> Graphzero::ReservoirSampling(size_t nodeId, int k){
     if(k < 1) return {};
 
@@ -136,7 +138,17 @@ inline size_t Graphzero::node2vec_step(size_t curr, size_t prev, float p, float 
 
 inline std::vector<size_t> Graphzero::randomWalk(size_t start_node, size_t length, float p, float q){
 
-    static thread_local LRUTable lruCache(MAXLRUSIZE);
+    auto weightFunc = [this](size_t nodeID){
+        if(this->has_weights) return this->storage->get_weights(nodeID);
+        else{
+            size_t nodeDegree = this->storage->get_degree(nodeID);
+            std::vector<float> weights(nodeDegree);
+            for (float& w : weights) w = RNG.rand();
+            return std::span<float>(weights);
+        }
+    };
+
+    static thread_local LRUTable lruCache(MAXLRUSIZE,weightFunc);
 
     size_t next,curr = start_node,prev;
 
@@ -149,7 +161,7 @@ inline std::vector<size_t> Graphzero::randomWalk(size_t start_node, size_t lengt
         size_t degree = storage->get_degree(curr);
         if (degree == 0) break; // Dead end
 
-        auto table = lruCache.get_alias_table(curr,storage->get_degree(curr));
+        auto table = lruCache.get_alias_table(curr);
         if(i == 1){
             next = storage->get_edges(curr)[table.sample()];
         }else {

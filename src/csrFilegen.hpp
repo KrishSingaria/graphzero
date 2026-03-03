@@ -11,7 +11,7 @@
 #include <cstring>      // For memset, strchr
 #include <charconv>     // For std::from_chars (Modern C++17)
 
-// --- PLATFORM DEPENDENT INCLUDES ---
+// PLATFORM DEPENDENT INCLUDES
 #ifdef _WIN32
     #include <windows.h>
 #else
@@ -25,12 +25,10 @@
 
 // Helper for alignment
 inline uint64_t align64(uint64_t val) {
-    return (val + 63) & ~63; 
+    return (val + 63) & ~63ULL; 
 }
 
-// ---------------------------------------------------------
-// 1. SMALL/MEDIUM GENERATOR (Use std::ofstream)
-// ---------------------------------------------------------
+// 1. SMALL/MEDIUM GENERATOR (Used std::ofstream)
 // No OS-specific changes needed here; std::ofstream is cross-platform.
 void generateBinary(std::vector<size_t>& nnzRow, std::vector<size_t>& colPtr, const char* pathFileName){
     
@@ -75,17 +73,15 @@ void generateBinary(std::vector<size_t>& nnzRow, std::vector<size_t>& colPtr, co
 }
 
 
-// ---------------------------------------------------------
-// 2. LARGE GRAPH GENERATOR (Use mmap + Alignment)
-// ---------------------------------------------------------
+// 2. LARGE DUMMY GRAPH GENERATOR (Use mmap + Alignment)
 void generateLargeGraph(size_t NUM_NODES, float PROB, const char* pathFileName) {
     std::cout << "Generating graph with " << NUM_NODES << " nodes (Direct-to-Disk mode)..." << std::endl;
 
-    // --- SETUP RNG ---
+    // SETUP RNG
     std::mt19937 gen(42); 
     std::uniform_real_distribution<float> dist(0.0f, 1.0f);
 
-    // --- PASS 1: Count Degrees ---
+    // PASS 1: Count Degrees
     std::cout << "[Pass 1] Counting degrees..." << std::endl;
     std::vector<size_t> degrees(NUM_NODES, 0);
     size_t total_edges_count = 0;
@@ -100,7 +96,7 @@ void generateLargeGraph(size_t NUM_NODES, float PROB, const char* pathFileName) 
         }
     }
 
-    // --- PREPARE HEADER & OFFSETS ---
+    // PREPARE HEADER & OFFSETS
     GraphHeader graphData;
     graphData.sizeofnnzRow = (NUM_NODES + 1) * sizeof(size_t);
     graphData.sizeofcolPtr = total_edges_count * sizeof(size_t);
@@ -120,7 +116,7 @@ void generateLargeGraph(size_t NUM_NODES, float PROB, const char* pathFileName) 
 
     char* map_addr = nullptr;
 
-    // --- OS SPECIFIC FILE CREATION & MAPPING ---
+    // OS SPECIFIC FILE CREATION & MAPPING
     #ifdef _WIN32
         // Windows Implementation
         HANDLE hFile = CreateFileA(pathFileName, GENERIC_READ | GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
@@ -157,15 +153,15 @@ void generateLargeGraph(size_t NUM_NODES, float PROB, const char* pathFileName) 
         }
     #endif
 
-    // --- WRITE HEADER ---
+    // WRITE HEADER
     GraphHeader* header_ptr = (GraphHeader*)map_addr;
     *header_ptr = graphData; 
 
-    // --- SET POINTERS (Using Aligned Offsets) ---
+    // SET POINTERS (Using Aligned Offsets)
     size_t* nnzRow_ptr = (size_t*)(map_addr + graphData.offset_nnz);
     size_t* colPtr_ptr = (size_t*)(map_addr + graphData.offset_col); 
 
-    // --- WRITE nnzRow (Prefix Sum) ---
+    // WRITE nnzRow (Prefix Sum)
     std::vector<size_t> current_write_pos(NUM_NODES); 
     size_t running_sum = 0;
 
@@ -176,7 +172,7 @@ void generateLargeGraph(size_t NUM_NODES, float PROB, const char* pathFileName) 
         nnzRow_ptr[i + 1] = running_sum;    
     }
 
-    // --- PASS 2: WRITE EDGES ---
+    // PASS 2: WRITE EDGES
     std::cout << "[Pass 2] Writing edges..." << std::endl;
     gen.seed(42); // Reset RNG
 
@@ -194,7 +190,7 @@ void generateLargeGraph(size_t NUM_NODES, float PROB, const char* pathFileName) 
     }
     std::cout << std::endl;
 
-    // --- SORTING ---
+    // SORTING
     std::cout << "[Post-Process] Sorting neighbor lists..." << std::endl;
     // On Windows MSVC, OpenMP requires special flags, stick to standard sort for compatibility
     // #pragma omp parallel for // Uncomment if using OpenMP on Windows
@@ -204,7 +200,7 @@ void generateLargeGraph(size_t NUM_NODES, float PROB, const char* pathFileName) 
         std::sort(colPtr_ptr + start, colPtr_ptr + end);
     }
 
-    // --- CLEANUP ---
+    // CLEANUP
     #ifdef _WIN32
         UnmapViewOfFile(map_addr);
         CloseHandle(hMap);
@@ -218,50 +214,72 @@ void generateLargeGraph(size_t NUM_NODES, float PROB, const char* pathFileName) 
     std::cout << "Success! Aligned Graph saved to " << pathFileName << std::endl;
 }
 
-// ===============================
-// edges csv to .gl file generator  
-// ===============================
 
-// Modern C++ Fast CSV Line Parser
-void parse_line(char* line, uint64_t& u, uint64_t& v) {
-    // Find comma
-    char* comma = strchr(line, ',');
-    if (!comma) return;
+
+// edges csv to .gl file generator  
+
+// Updated Line Parser: Now supports an optional weight
+void parse_line(char* line, uint64_t& u, uint64_t& v, float& w, bool has_weights) {
+    char* comma1 = strchr(line, ',');
+    if (!comma1) return;
     
-    // C++17 std::from_chars (Faster than atoll)
-    std::from_chars(line, comma, u);
-    std::from_chars(comma + 1, line + strlen(line), v);
+    std::from_chars(line, comma1, u);
+    
+    if (has_weights) {
+        char* comma2 = strchr(comma1 + 1, ',');
+        if (comma2) {
+            std::from_chars(comma1 + 1, comma2, v);
+            // strtof is highly reliable for floats across all compilers
+            w = strtof(comma2 + 1, nullptr); 
+        }
+    } else {
+        std::from_chars(comma1 + 1, line + strlen(line), v);
+    }
 }
 
 void convert_csv(const std::string& csv_path, const std::string& out_path, bool directed) {
     std::cout << "Starting Conversion: " << csv_path << std::endl;
 
-    // --- PASS 1: DISCOVERY ---
-    std::cout << "[Pass 1] Scanning for Max Node ID and Degrees..." << std::endl;
-    
-    // Standard C I/O is cross-platform and fast enough
     FILE* f = fopen(csv_path.c_str(), "r");
     if (!f) throw std::runtime_error("Could not open CSV");
 
     char buffer[1024];
-    uint64_t max_node = 0;
-    uint64_t edge_count = 0;
+    bool has_weights = false;
     
-    // Skip header if exists
+    // AUTO-DETECT WEIGHTS
     if (fgets(buffer, sizeof(buffer), f)) {
-        if (!isdigit(buffer[0])) {
+        // Skip header if it exists, but use the first data line to count commas
+        bool is_header = !isdigit(buffer[0]);
+        if (is_header) {
             std::cout << "Skipping header: " << buffer;
-        } else {
-            rewind(f); 
+            fgets(buffer, sizeof(buffer), f); // read first actual data line
         }
+        
+        // Count commas to detect format (u,v vs u,v,w)
+        int comma_count = 0;
+        for(int i = 0; buffer[i]; i++) {
+            if(buffer[i] == ',') comma_count++;
+        }
+        has_weights = (comma_count >= 2);
+        
+        rewind(f); // Reset to beginning
+        if (is_header) fgets(buffer, sizeof(buffer), f); // Skip header again
     }
 
+    // PASS 1: DISCOVERY
+    std::cout << "[Pass 1] Scanning for Max Node ID and Degrees. Weights Detected: " 
+              << (has_weights ? "Yes" : "No") << std::endl;
+    
+    uint64_t max_node = 0;
+    uint64_t edge_count = 0;
     std::vector<uint64_t> degrees;
     
     while (fgets(buffer, sizeof(buffer), f)) {
         uint64_t u, v;
-        parse_line(buffer, u, v);
-        max_node = std::max(max_node,(std::max)(u,v));
+        float w;
+        parse_line(buffer, u, v, w, has_weights);
+        
+        max_node = std::max(max_node, (std::max)(u, v));
         if (u >= degrees.size() || v >= degrees.size()) {
             size_t new_max = (std::max)(u, v) + 1;
             if (new_max > degrees.size()) {
@@ -277,13 +295,12 @@ void convert_csv(const std::string& csv_path, const std::string& out_path, bool 
     }
     
     degrees.resize(max_node + 1); 
-
     uint64_t num_nodes = degrees.size();
     
     std::cout << "\nFound Nodes: " << num_nodes << ", Edges: " << edge_count 
               << (directed ? " (Directed)" : " (Undirected)") << std::endl;
 
-    // --- PREPARE OUTPUT FILE ---
+    // PREPARE OUTPUT FILE
     uint64_t total_written_edges = directed ? edge_count : edge_count * 2;
     
     GraphHeader header;
@@ -291,19 +308,28 @@ void convert_csv(const std::string& csv_path, const std::string& out_path, bool 
     header.num_edges = total_written_edges;
     header.sizeofnnzRow = (num_nodes + 1) * sizeof(uint64_t);
     header.sizeofcolPtr = total_written_edges * sizeof(uint64_t);
-    header.flags = 0;
+    header.flags = header.flags | (has_weights ? 1 : 0); // bit 0: has_weights
 
     header.offset_nnz = sizeof(GraphHeader);
     uint64_t end_nnz = header.offset_nnz + header.sizeofnnzRow;
     header.offset_col = align64(end_nnz);
+    
+    uint64_t end_col = header.offset_col + header.sizeofcolPtr;
+    uint64_t offset_weights = 0;
+    
+    size_t file_size = end_col;
 
-    size_t file_size = header.offset_col + header.sizeofcolPtr;
+    // Expand file size if weights exist
+    if (has_weights) {
+        offset_weights = align64(end_col);
+        file_size = offset_weights + (total_written_edges * sizeof(float));
+    }
 
     std::cout << "[Disk] Creating " << file_size / (1024*1024) << "MB binary file..." << std::endl;
     
     char* map_addr = nullptr;
 
-    // --- OS SPECIFIC FILE CREATION ---
+    // OS SPECIFIC FILE CREATION
     #ifdef _WIN32
         HANDLE hFile = CreateFileA(out_path.c_str(), GENERIC_READ | GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
         if (hFile == INVALID_HANDLE_VALUE) { fclose(f); throw std::runtime_error("Failed to create file"); }
@@ -334,11 +360,12 @@ void convert_csv(const std::string& csv_path, const std::string& out_path, bool 
         }
     #endif
 
-    // --- WRITE HEADER & POINTERS ---
+    // WRITE HEADER & POINTERS
     memcpy(map_addr, &header, sizeof(header));
     
     uint64_t* indptr = (uint64_t*)(map_addr + header.offset_nnz);
     uint64_t* indices = (uint64_t*)(map_addr + header.offset_col);
+    float* weights = has_weights ? (float*)(map_addr + offset_weights) : nullptr;
 
     // Build Prefix Sum (Indptr)
     std::vector<uint64_t> write_offsets(num_nodes);
@@ -351,38 +378,34 @@ void convert_csv(const std::string& csv_path, const std::string& out_path, bool 
         indptr[i+1] = running_sum;
     }
 
-    // --- PASS 2: PLACEMENT ---
+    // PASS 2: PLACEMENT
     std::cout << "[Pass 2] Writing edges to disk..." << std::endl;
     rewind(f); 
     
-    if (fgets(buffer, sizeof(buffer), f) && isdigit(buffer[0])) rewind(f);
+    if (fgets(buffer, sizeof(buffer), f) && !isdigit(buffer[0])) { /* header already skipped */ } else { rewind(f); }
 
     size_t processed = 0;
     while (fgets(buffer, sizeof(buffer), f)) {
         uint64_t u, v;
-        parse_line(buffer, u, v);
+        float w;
+        parse_line(buffer, u, v, w, has_weights);
 
         // Place u -> v
         uint64_t offset = write_offsets[u]++;
         indices[offset] = v;
+        if (has_weights) weights[offset] = w;
 
         if (!directed) {
             // Place v -> u
             offset = write_offsets[v]++;
             indices[offset] = u;
+            if (has_weights) weights[offset] = w;
         }
         processed++;
         if (processed % 1000000 == 0) std::cout << "\rWritten " << processed << " edges..." << std::flush;
     }
     
     fclose(f);
-    std::cout << "\n[Post-Process] Sorting neighbor lists..." << std::endl;
-    
-    // Using standard sort for portability (OpenMP requires flags)
-    #pragma omp parallel for
-    for (signed long long i = 0; i < num_nodes; ++i) {
-        std::sort(indices + indptr[i], indices + indptr[i+1]);
-    }
 
     // Cleanup
     #ifdef _WIN32

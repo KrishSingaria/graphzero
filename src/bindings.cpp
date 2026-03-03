@@ -25,6 +25,7 @@ Returns:
         ) 
         .def_rw("num_nodes",&Graphzero::num_nodes)
         .def_rw("num_edges",&Graphzero::num_edges)
+        .def_rw("has_weights",&Graphzero::has_weights)
 
 
         .def("get_degree", [](Graphzero &self, size_t node_id) {
@@ -56,6 +57,27 @@ Args:
     node_id (int)
 Returns:
     1-D numpy ndarray of neighbour node IDs (dtype: platform-size integer).
+)doc",
+            nb::arg("node_id")
+        )
+
+        .def("get_weights", [](Graphzero &self, size_t node_id) {
+            auto weights = self.get_storage()->get_weights(node_id);
+
+            // Return a zero-copy view into the underlying weights buffer and keep
+            // the Graph object alive as the owner.
+            return nb::ndarray<nb::numpy, float, nb::shape<1>>(
+                const_cast<float*>(weights.data()), // pointer to data
+                { weights.size() },                 // shape
+                nb::cast(self)                    // owner: keep Graph instance alive
+            );
+        },
+            nb::keep_alive<0,1>(),
+R"doc(Returns the edge weight of neighbours of a node.
+Args:
+    node_id (int)
+Returns:
+    1-D numpy ndarray of neighbour node edge weights (dtype: float).
 )doc",
             nb::arg("node_id")
         )
