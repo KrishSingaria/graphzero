@@ -14,26 +14,26 @@ class Graphzero
 {
 private:
     CSR* storage;
-    size_t MAXLRUSIZE = 10000;
+    int64_t MAXLRUSIZE = 10000;
 public:
     std::string filename;
-    size_t num_nodes;
-    size_t num_edges;
+    int64_t num_nodes;
+    int64_t num_edges;
     bool has_weights;
 
     Graphzero(const char* filename);
     ~Graphzero();
     
-    bool isNeighbor(size_t u, size_t v);
-    size_t node2vec_step(size_t curr, size_t prev, float p, float q, const AliasTable& table);
+    bool isNeighbor(int64_t u, int64_t v);
+    int64_t node2vec_step(int64_t curr, int64_t prev, float p, float q, const AliasTable& table);
 
-    std::vector<size_t> fySampling(size_t nodeId, int k);
-    std::vector<size_t> ReservoirSampling(size_t nodeId, int k);
-    std::vector<size_t> randomWalk(size_t start_node, size_t length, float p, float q);
+    std::vector<int64_t> fySampling(int64_t nodeId, int k);
+    std::vector<int64_t> ReservoirSampling(int64_t nodeId, int k);
+    std::vector<int64_t> randomWalk(int64_t start_node, int64_t length, float p, float q);
     
-    std::vector<size_t> batchRandomWalk(const std::vector<size_t>& startNodes, size_t walkLength, float p, float q);
-    std::vector<size_t> batchRandomUniformWalk(const std::vector<size_t>& startNodes, size_t walkLength);
-    std::vector<size_t> batchRandomFanout(const std::vector<size_t>& startNodes, size_t K);
+    std::vector<int64_t> batchRandomWalk(const std::vector<int64_t>& startNodes, int64_t walkLength, float p, float q);
+    std::vector<int64_t> batchRandomUniformWalk(const std::vector<int64_t>& startNodes, int64_t walkLength);
+    std::vector<int64_t> batchRandomFanout(const std::vector<int64_t>& startNodes, int64_t K);
 
     CSR* get_storage(){
         return storage;
@@ -53,21 +53,21 @@ inline Graphzero::~Graphzero(){
 }
 
 // uses Fisher-Yates Shuffling Method,[Could be bad for Memory SO NOT USING IT] 
-inline std::vector<size_t> Graphzero::fySampling(size_t nodeId, int k){
+inline std::vector<int64_t> Graphzero::fySampling(int64_t nodeId, int k){
     if(k < 1) return {};
 
-    std::span<size_t> neighbours = storage->get_edges(nodeId);
-    size_t deg = neighbours.size();
+    std::span<int64_t> neighbours = storage->get_edges(nodeId);
+    int64_t deg = neighbours.size();
 
-    if(deg <= (size_t)k){
-        return std::vector<size_t>(neighbours.begin(),neighbours.end());
+    if(deg <= (int64_t)k){
+        return std::vector<int64_t>(neighbours.begin(),neighbours.end());
     }
        
     // selection first k neighbours
-    std::vector<size_t> result(neighbours.begin(),neighbours.end());
+    std::vector<int64_t> result(neighbours.begin(),neighbours.end());
     // Fisher-Yates shuffle first K elements 
-    for(size_t i = 0; i < k; i++){
-        size_t j = RNG.rand_int(i,deg-1);
+    for(int64_t i = 0; i < k; i++){
+        int64_t j = RNG.rand_int(i,deg-1);
         std::swap(result[i],result[j]);
     }
 
@@ -76,22 +76,22 @@ inline std::vector<size_t> Graphzero::fySampling(size_t nodeId, int k){
 }
 
 // use Reservoir Sampling Method, without weigths
-inline std::vector<size_t> Graphzero::ReservoirSampling(size_t nodeId, int k){
+inline std::vector<int64_t> Graphzero::ReservoirSampling(int64_t nodeId, int k){
     if(k < 1) return {};
 
-    std::span<size_t> neighbours = storage->get_edges(nodeId);
-    size_t deg = neighbours.size();
+    std::span<int64_t> neighbours = storage->get_edges(nodeId);
+    int64_t deg = neighbours.size();
 
-    if(deg <= (size_t)k){
-        return std::vector<size_t>(neighbours.begin(),neighbours.end());
+    if(deg <= (int64_t)k){
+        return std::vector<int64_t>(neighbours.begin(),neighbours.end());
     }
     
     // selection k neighbours
-    std::vector<size_t> result(neighbours.begin(),neighbours.begin() + k); // first k elements
+    std::vector<int64_t> result(neighbours.begin(),neighbours.begin() + k); // first k elements
     
     // Resevoir Sampling K elements 
-    for(size_t i = k; i < deg; i++){
-        size_t j = RNG.rand_int(0,i);
+    for(int64_t i = k; i < deg; i++){
+        int64_t j = RNG.rand_int(0,i);
         if(j < k){
             result[j] = neighbours[i];
         }
@@ -101,7 +101,7 @@ inline std::vector<size_t> Graphzero::ReservoirSampling(size_t nodeId, int k){
 }
 
 // is v neighbor of u ? 
-inline bool Graphzero::isNeighbor(size_t u, size_t v){
+inline bool Graphzero::isNeighbor(int64_t u, int64_t v){
     
     auto edges = storage->get_edges(u);
     for(auto&& i: edges){
@@ -111,13 +111,13 @@ inline bool Graphzero::isNeighbor(size_t u, size_t v){
 }
 
 // return next step in node2vec algo
-inline size_t Graphzero::node2vec_step(size_t curr, size_t prev, float p, float q, const AliasTable& table){
+inline int64_t Graphzero::node2vec_step(int64_t curr, int64_t prev, float p, float q, const AliasTable& table){
     // Rejection sampling 
     float maxBias = (std::max)({1.0f,1.0f/p,1.0f/q}); // for windows max
 
     while (true)
     {
-        size_t neighbour = storage->get_edges(curr)[table.sample()];
+        int64_t neighbour = storage->get_edges(curr)[table.sample()];
 
         float bias = 0.0f;
 
@@ -136,12 +136,12 @@ inline size_t Graphzero::node2vec_step(size_t curr, size_t prev, float p, float 
     
 }
 
-inline std::vector<size_t> Graphzero::randomWalk(size_t start_node, size_t length, float p, float q){
+inline std::vector<int64_t> Graphzero::randomWalk(int64_t start_node, int64_t length, float p, float q){
 
-    auto weightFunc = [this](size_t nodeID){
+    auto weightFunc = [this](int64_t nodeID){
         if(this->has_weights) return this->storage->get_weights(nodeID);
         else{
-            size_t nodeDegree = this->storage->get_degree(nodeID);
+            int64_t nodeDegree = this->storage->get_degree(nodeID);
             std::vector<float> weights(nodeDegree);
             for (float& w : weights) w = RNG.rand();
             return std::span<float>(weights);
@@ -150,15 +150,15 @@ inline std::vector<size_t> Graphzero::randomWalk(size_t start_node, size_t lengt
 
     static thread_local LRUTable lruCache(MAXLRUSIZE,weightFunc);
 
-    size_t next,curr = start_node,prev;
+    int64_t next,curr = start_node,prev;
 
-    std::vector<size_t> walk;
+    std::vector<int64_t> walk;
     walk.reserve(length);
     walk.push_back(curr);
 
-    for (size_t i = 1; i < length; i++)
+    for (int64_t i = 1; i < length; i++)
     {
-        size_t degree = storage->get_degree(curr);
+        int64_t degree = storage->get_degree(curr);
         if (degree == 0) break; // Dead end
 
         auto table = lruCache.get_alias_table(curr);
@@ -176,18 +176,18 @@ inline std::vector<size_t> Graphzero::randomWalk(size_t start_node, size_t lengt
 }
 
 //keep p = 1.0f and q = 1.0f for default values.
-inline std::vector<size_t> Graphzero::batchRandomWalk(const std::vector<size_t>& startNodes, size_t walkLength, float p, float q){
-    std::vector<size_t> results(walkLength*startNodes.size());
+inline std::vector<int64_t> Graphzero::batchRandomWalk(const std::vector<int64_t>& startNodes, int64_t walkLength, float p, float q){
+    std::vector<int64_t> results(walkLength*startNodes.size());
 
     // set only for random walks 
     storage->set_access_pattern(true);
 
     #pragma omp parallel for
     for(signed long long i = 0; i < startNodes.size(); i++){
-        std::vector<size_t> walk = randomWalk(startNodes[i],walkLength,p,q);
+        std::vector<int64_t> walk = randomWalk(startNodes[i],walkLength,p,q);
         
         // thread safe
-        size_t offset = i*walkLength;
+        int64_t offset = i*walkLength;
         for(int j = 0; j < walk.size(); j++){
             results[j+offset] = walk[j];
         }
@@ -198,8 +198,8 @@ inline std::vector<size_t> Graphzero::batchRandomWalk(const std::vector<size_t>&
     return results;
 }
 
-inline std::vector<size_t> Graphzero::batchRandomUniformWalk(const std::vector<size_t>& startNodes, size_t walkLength){
-    std::vector<size_t> results(walkLength*startNodes.size());
+inline std::vector<int64_t> Graphzero::batchRandomUniformWalk(const std::vector<int64_t>& startNodes, int64_t walkLength){
+    std::vector<int64_t> results(walkLength*startNodes.size());
     
     // set only for random walks 
     storage->set_access_pattern(true);
@@ -207,10 +207,10 @@ inline std::vector<size_t> Graphzero::batchRandomUniformWalk(const std::vector<s
     #pragma omp parallel for
     for(signed long long i = 0; i < startNodes.size(); i++){
         // walking here 
-        size_t offset = i*walkLength;
-        size_t curr = startNodes[i], next;
+        int64_t offset = i*walkLength;
+        int64_t curr = startNodes[i], next;
         results[offset] = curr;
-        for(size_t j = 1; j < walkLength; ++j){
+        for(int64_t j = 1; j < walkLength; ++j){
             auto edges = storage->get_edges(curr);
 
             if(edges.size() == 0){
@@ -230,19 +230,19 @@ inline std::vector<size_t> Graphzero::batchRandomUniformWalk(const std::vector<s
 }
 
 
-inline std::vector<size_t> Graphzero::batchRandomFanout(const std::vector<size_t>& startNodes, size_t K){
-    std::vector<size_t> results(K * startNodes.size(), 0);
+inline std::vector<int64_t> Graphzero::batchRandomFanout(const std::vector<int64_t>& startNodes, int64_t K){
+    std::vector<int64_t> results(K * startNodes.size(), 0);
 
     // set only for sampling access pattern
     storage->set_access_pattern(true);
 
     #pragma omp parallel for
     for (signed long long i = 0; i < (signed long long)startNodes.size(); ++i) {
-        std::vector<size_t> samples = ReservoirSampling(startNodes[i], (int)K);
+        std::vector<int64_t> samples = ReservoirSampling(startNodes[i], (int)K);
 
         // thread safe write into results
-        size_t offset = (size_t)i * K;
-        for (size_t j = 0; j < samples.size(); ++j) {
+        int64_t offset = (int64_t)i * K;
+        for (int64_t j = 0; j < samples.size(); ++j) {
             results[offset + j] = samples[j];
         }
     }

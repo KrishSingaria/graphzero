@@ -15,8 +15,8 @@ public:
     }
 
     // [min,max] inclusive 
-    size_t rand_int(int min,int max){
-        std::uniform_int_distribution<size_t> dist(min,max); 
+    int64_t rand_int(int min,int max){
+        std::uniform_int_distribution<int64_t> dist(min,max); 
         return dist(engine);
     }
 

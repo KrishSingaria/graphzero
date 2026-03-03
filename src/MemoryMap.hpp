@@ -15,7 +15,7 @@
 #endif
 
 // only here
-const uint64_t MAGIC_NUM = 8388354976772092519; // 'graphlit' converted in size_t
+const uint64_t MAGIC_NUM = 8388354976772092519; // 'graphlit' converted in int64_t
 
 struct GraphHeader {
     uint64_t MAGIC_NUM 
@@ -42,7 +42,7 @@ private:
     struct stat st;
     #endif
 
-    size_t length;
+    int64_t length;
     void* mappedptr;
 public:
     // constructor accquires, no flags currently 
@@ -52,7 +52,7 @@ public:
 
     // accessors
     void* get_data();
-    size_t get_size();
+    int64_t get_size();
 };
 
 inline MemoryMap::MemoryMap(const char* path){
@@ -135,7 +135,7 @@ inline void* MemoryMap::get_data(){
     return mappedptr;
 }
 
-inline size_t MemoryMap::get_size(){
+inline int64_t MemoryMap::get_size(){
     // get the length in bytes
     return length;
 }

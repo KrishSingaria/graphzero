@@ -28,7 +28,7 @@ Returns:
         .def_rw("has_weights",&Graphzero::has_weights)
 
 
-        .def("get_degree", [](Graphzero &self, size_t node_id) {
+        .def("get_degree", [](Graphzero &self, int64_t node_id) {
             return self.get_storage()->get_degree(node_id);
         },
 R"doc(Get the degree of a node.
@@ -40,13 +40,13 @@ Returns:
             nb::arg("node_id")
         )
         
-        .def("get_neighbours", [](Graphzero &self, size_t node_id) {
+        .def("get_neighbours", [](Graphzero &self, int64_t node_id) {
             auto edges = self.get_storage()->get_edges(node_id);
 
             // Return a zero-copy view into the underlying edge buffer and keep
             // the Graph object alive as the owner.
-            return nb::ndarray<nb::numpy, size_t, nb::shape<1>>(
-                const_cast<size_t*>(edges.data()), // pointer to data
+            return nb::ndarray<nb::numpy, int64_t, nb::shape<1>>(
+                const_cast<int64_t*>(edges.data()), // pointer to data
                 { edges.size() },                 // shape
                 nb::cast(self)                    // owner: keep Graph instance alive
             );
@@ -61,7 +61,7 @@ Returns:
             nb::arg("node_id")
         )
 
-        .def("get_weights", [](Graphzero &self, size_t node_id) {
+        .def("get_weights", [](Graphzero &self, int64_t node_id) {
             auto weights = self.get_storage()->get_weights(node_id);
 
             // Return a zero-copy view into the underlying weights buffer and keep
@@ -82,7 +82,7 @@ Returns:
             nb::arg("node_id")
         )
         
-        .def("batch_random_walk", [](Graphzero &self, const std::vector<size_t>& startNodes, size_t walkLength, float p, float q) {
+        .def("batch_random_walk", [](Graphzero &self, const std::vector<int64_t>& startNodes, int64_t walkLength, float p, float q) {
             auto tmp = self.batchRandomWalk(startNodes, walkLength, p, q);
             // convert to int64 for Python-facing ndarray (explicit copy)
             std::vector<int64_t>* walkData = new std::vector<int64_t>(tmp.begin(), tmp.end());
@@ -116,7 +116,7 @@ Returns:
             nb::arg("q") = 1.0f   // Default q=1.0
         )
 
-        .def("batch_random_walk_uniform", [](Graphzero &self, const std::vector<size_t>& startNodes, size_t walkLength) {
+        .def("batch_random_walk_uniform", [](Graphzero &self, const std::vector<int64_t>& startNodes, int64_t walkLength) {
             auto tmp = self.batchRandomUniformWalk(startNodes, walkLength);
             std::vector<int64_t>* walkData = new std::vector<int64_t>(tmp.begin(), tmp.end());
 
@@ -144,7 +144,7 @@ Returns:
             nb::arg("walk_length")
         )
 
-        .def("batch_random_fanout", [](Graphzero &self, const std::vector<size_t>& startNodes, size_t K) {
+        .def("batch_random_fanout", [](Graphzero &self, const std::vector<int64_t>& startNodes, int64_t K) {
             auto tmp = self.batchRandomFanout(startNodes, K);
             std::vector<int64_t>* walkData = new std::vector<int64_t>(tmp.begin(), tmp.end());
 
@@ -172,7 +172,7 @@ Returns:
             nb::arg("K")
         )
         
-        .def("sample_neighbours", [](Graphzero &self, size_t startNode, size_t K) {
+        .def("sample_neighbours", [](Graphzero &self, int64_t startNode, int64_t K) {
             auto tmp = self.ReservoirSampling(startNode, K);
             std::vector<int64_t>* walkData = new std::vector<int64_t>(tmp.begin(), tmp.end());
 

@@ -30,12 +30,12 @@ inline uint64_t align64(uint64_t val) {
 
 // 1. SMALL/MEDIUM GENERATOR (Used std::ofstream)
 // No OS-specific changes needed here; std::ofstream is cross-platform.
-void generateBinary(std::vector<size_t>& nnzRow, std::vector<size_t>& colPtr, const char* pathFileName){
+void generateBinary(std::vector<int64_t>& nnzRow, std::vector<int64_t>& colPtr, const char* pathFileName){
     
     // 1. Prepare Header
     GraphHeader graphData; 
-    graphData.sizeofnnzRow = nnzRow.size() * sizeof(size_t);
-    graphData.sizeofcolPtr = colPtr.size() * sizeof(size_t);
+    graphData.sizeofnnzRow = nnzRow.size() * sizeof(int64_t);
+    graphData.sizeofcolPtr = colPtr.size() * sizeof(int64_t);
     graphData.num_nodes = nnzRow.size() - 1;
     graphData.num_edges = colPtr.size();
     graphData.flags = 0; 
@@ -59,7 +59,7 @@ void generateBinary(std::vector<size_t>& nnzRow, std::vector<size_t>& colPtr, co
     outfile.write((char*)nnzRow.data(), graphData.sizeofnnzRow);
 
     // 6. Write Padding (Zeros)
-    size_t padding_needed = graphData.offset_col - end_of_nnz;
+    int64_t padding_needed = graphData.offset_col - end_of_nnz;
     if (padding_needed > 0) {
         std::vector<char> zeros(padding_needed, 0);
         outfile.write(zeros.data(), padding_needed);
@@ -74,7 +74,7 @@ void generateBinary(std::vector<size_t>& nnzRow, std::vector<size_t>& colPtr, co
 
 
 // 2. LARGE DUMMY GRAPH GENERATOR (Use mmap + Alignment)
-void generateLargeGraph(size_t NUM_NODES, float PROB, const char* pathFileName) {
+void generateLargeGraph(int64_t NUM_NODES, float PROB, const char* pathFileName) {
     std::cout << "Generating graph with " << NUM_NODES << " nodes (Direct-to-Disk mode)..." << std::endl;
 
     // SETUP RNG
@@ -83,11 +83,11 @@ void generateLargeGraph(size_t NUM_NODES, float PROB, const char* pathFileName) 
 
     // PASS 1: Count Degrees
     std::cout << "[Pass 1] Counting degrees..." << std::endl;
-    std::vector<size_t> degrees(NUM_NODES, 0);
-    size_t total_edges_count = 0;
+    std::vector<int64_t> degrees(NUM_NODES, 0);
+    int64_t total_edges_count = 0;
 
-    for (size_t i = 0; i < NUM_NODES; ++i) {
-        for (size_t j = i + 1; j < NUM_NODES; ++j) {
+    for (int64_t i = 0; i < NUM_NODES; ++i) {
+        for (int64_t j = i + 1; j < NUM_NODES; ++j) {
             if (dist(gen) <= PROB) {
                 degrees[i]++;
                 degrees[j]++;
@@ -98,8 +98,8 @@ void generateLargeGraph(size_t NUM_NODES, float PROB, const char* pathFileName) 
 
     // PREPARE HEADER & OFFSETS
     GraphHeader graphData;
-    graphData.sizeofnnzRow = (NUM_NODES + 1) * sizeof(size_t);
-    graphData.sizeofcolPtr = total_edges_count * sizeof(size_t);
+    graphData.sizeofnnzRow = (NUM_NODES + 1) * sizeof(int64_t);
+    graphData.sizeofcolPtr = total_edges_count * sizeof(int64_t);
     graphData.num_nodes = NUM_NODES;
     graphData.num_edges = total_edges_count;
     graphData.flags = 0;
@@ -110,7 +110,7 @@ void generateLargeGraph(size_t NUM_NODES, float PROB, const char* pathFileName) 
     graphData.offset_col = align64(end_of_nnz); // Round up to next 64 bytes
 
     // Total File Size must include the gap/padding
-    size_t fileSize = graphData.offset_col + graphData.sizeofcolPtr;
+    int64_t fileSize = graphData.offset_col + graphData.sizeofcolPtr;
 
     std::cout << "[Disk] Allocating " << fileSize / (1024 * 1024) << " MB..." << std::endl;
 
@@ -158,15 +158,15 @@ void generateLargeGraph(size_t NUM_NODES, float PROB, const char* pathFileName) 
     *header_ptr = graphData; 
 
     // SET POINTERS (Using Aligned Offsets)
-    size_t* nnzRow_ptr = (size_t*)(map_addr + graphData.offset_nnz);
-    size_t* colPtr_ptr = (size_t*)(map_addr + graphData.offset_col); 
+    int64_t* nnzRow_ptr = (int64_t*)(map_addr + graphData.offset_nnz);
+    int64_t* colPtr_ptr = (int64_t*)(map_addr + graphData.offset_col); 
 
     // WRITE nnzRow (Prefix Sum)
-    std::vector<size_t> current_write_pos(NUM_NODES); 
-    size_t running_sum = 0;
+    std::vector<int64_t> current_write_pos(NUM_NODES); 
+    int64_t running_sum = 0;
 
     nnzRow_ptr[0] = 0;
-    for (size_t i = 0; i < NUM_NODES; ++i) {
+    for (int64_t i = 0; i < NUM_NODES; ++i) {
         current_write_pos[i] = running_sum; 
         running_sum += degrees[i];
         nnzRow_ptr[i + 1] = running_sum;    
@@ -176,17 +176,17 @@ void generateLargeGraph(size_t NUM_NODES, float PROB, const char* pathFileName) 
     std::cout << "[Pass 2] Writing edges..." << std::endl;
     gen.seed(42); // Reset RNG
 
-    for (size_t i = 0; i < NUM_NODES; ++i) {
-        for (size_t j = i + 1; j < NUM_NODES; ++j) {
+    for (int64_t i = 0; i < NUM_NODES; ++i) {
+        for (int64_t j = i + 1; j < NUM_NODES; ++j) {
             if (dist(gen) <= PROB) {
-                size_t pos_i = current_write_pos[i]++;
+                int64_t pos_i = current_write_pos[i]++;
                 colPtr_ptr[pos_i] = j;
 
-                size_t pos_j = current_write_pos[j]++;
+                int64_t pos_j = current_write_pos[j]++;
                 colPtr_ptr[pos_j] = i;
             }
         }
-        if (i % 1000 == 0) std::cout << "\rProgress: " << (size_t)((float)i/NUM_NODES * 100) << "%" << std::flush;
+        if (i % 1000 == 0) std::cout << "\rProgress: " << (int64_t)((float)i/NUM_NODES * 100) << "%" << std::flush;
     }
     std::cout << std::endl;
 
@@ -194,9 +194,9 @@ void generateLargeGraph(size_t NUM_NODES, float PROB, const char* pathFileName) 
     std::cout << "[Post-Process] Sorting neighbor lists..." << std::endl;
     // On Windows MSVC, OpenMP requires special flags, stick to standard sort for compatibility
     // #pragma omp parallel for // Uncomment if using OpenMP on Windows
-    for(size_t i=0; i<NUM_NODES; ++i) {
-        size_t start = nnzRow_ptr[i];
-        size_t end = nnzRow_ptr[i+1];
+    for(int64_t i=0; i<NUM_NODES; ++i) {
+        int64_t start = nnzRow_ptr[i];
+        int64_t end = nnzRow_ptr[i+1];
         std::sort(colPtr_ptr + start, colPtr_ptr + end);
     }
 
@@ -281,7 +281,7 @@ void convert_csv(const std::string& csv_path, const std::string& out_path, bool 
         
         max_node = std::max(max_node, (std::max)(u, v));
         if (u >= degrees.size() || v >= degrees.size()) {
-            size_t new_max = (std::max)(u, v) + 1;
+            int64_t new_max = (std::max)(u, v) + 1;
             if (new_max > degrees.size()) {
                 degrees.resize((std::max)(new_max, degrees.size() * 2), 0);
             }
@@ -317,7 +317,7 @@ void convert_csv(const std::string& csv_path, const std::string& out_path, bool 
     uint64_t end_col = header.offset_col + header.sizeofcolPtr;
     uint64_t offset_weights = 0;
     
-    size_t file_size = end_col;
+    int64_t file_size = end_col;
 
     // Expand file size if weights exist
     if (has_weights) {
@@ -372,7 +372,7 @@ void convert_csv(const std::string& csv_path, const std::string& out_path, bool 
     uint64_t running_sum = 0;
     
     indptr[0] = 0;
-    for (size_t i = 0; i < num_nodes; ++i) {
+    for (int64_t i = 0; i < num_nodes; ++i) {
         write_offsets[i] = running_sum;
         running_sum += degrees[i];
         indptr[i+1] = running_sum;
@@ -384,7 +384,7 @@ void convert_csv(const std::string& csv_path, const std::string& out_path, bool 
     
     if (fgets(buffer, sizeof(buffer), f) && !isdigit(buffer[0])) { /* header already skipped */ } else { rewind(f); }
 
-    size_t processed = 0;
+    int64_t processed = 0;
     while (fgets(buffer, sizeof(buffer), f)) {
         uint64_t u, v;
         float w;

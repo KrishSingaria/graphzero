@@ -14,14 +14,14 @@
 class AliasTable
 {
 private:
-    size_t N = 0;
+    int64_t N = 0;
     std::vector<float> prob;
     std::vector<int> alias;
 public:
     AliasTable() = default;
     AliasTable(const std::vector<float>& weights); // N buckets; N size cache
 
-    size_t sample() const;
+    int64_t sample() const;
 
     bool empty() const { return prob.empty(); }
 };
@@ -40,9 +40,9 @@ inline AliasTable::AliasTable(const std::vector<float>& weights)
     double scale = N / sum;
 
     // Vose's Two stack algo
-    std::stack<size_t> underfull,overfull; // stores index i
+    std::stack<int64_t> underfull,overfull; // stores index i
     
-    for(size_t i = 0; i < N; ++i){
+    for(int64_t i = 0; i < N; ++i){
         prob[i] = static_cast<float>(weights[i] * scale);
         if(prob[i] < 1.0f){
             underfull.push(i);
@@ -52,8 +52,8 @@ inline AliasTable::AliasTable(const std::vector<float>& weights)
     }
 
     while(!underfull.empty() && !overfull.empty()){
-        size_t idxUf = underfull.top(); underfull.pop();
-        size_t idxOf = overfull.top() ; overfull.pop();
+        int64_t idxUf = underfull.top(); underfull.pop();
+        int64_t idxOf = overfull.top() ; overfull.pop();
 
         alias[idxUf] = idxOf;
         // prob[idxUf] + X(taken from prob[idxOf]) = 1.0f
@@ -69,22 +69,22 @@ inline AliasTable::AliasTable(const std::vector<float>& weights)
 
     while (!underfull.empty())
     {
-        size_t top = underfull.top(); underfull.pop();
+        int64_t top = underfull.top(); underfull.pop();
         prob[top] = 1.0f;
     }
     
     while (!overfull.empty())
     {
-        size_t top = overfull.top(); overfull.pop();
+        int64_t top = overfull.top(); overfull.pop();
         prob[top] = 1.0f;
     }
 }
 
-inline size_t AliasTable::sample() const{
+inline int64_t AliasTable::sample() const{
     if(N == 0) return 0; 
 
     float uniformAtRandom = N*RNG.rand();
-    size_t intPart = static_cast<size_t>(uniformAtRandom);
+    int64_t intPart = static_cast<int64_t>(uniformAtRandom);
     float decimalPart = uniformAtRandom - static_cast<float>(intPart);
     
     if(decimalPart < prob[intPart]){
@@ -96,22 +96,22 @@ inline size_t AliasTable::sample() const{
 class LRUTable
 {
 private:
-    size_t MAXCAPACITY;
-    std::function<std::span<float>(size_t)> getWeights;
+    int64_t MAXCAPACITY;
+    std::function<std::span<float>(int64_t)> getWeights;
     
     // Cache entry defination 
-    using CacheEntry = std::pair<AliasTable, std::list<size_t>::iterator>;
-    std::unordered_map<size_t,CacheEntry> isNodePresent;
+    using CacheEntry = std::pair<AliasTable, std::list<int64_t>::iterator>;
+    std::unordered_map<int64_t,CacheEntry> isNodePresent;
     
     //LRU queue
-    std::list<size_t> lst;
+    std::list<int64_t> lst;
 public:
-    LRUTable(size_t maxCapacity, std::function<std::span<float>(size_t)> weightFunc) : MAXCAPACITY(maxCapacity), getWeights(weightFunc) {}
+    LRUTable(int64_t maxCapacity, std::function<std::span<float>(int64_t)> weightFunc) : MAXCAPACITY(maxCapacity), getWeights(weightFunc) {}
 
-    const AliasTable& get_alias_table(size_t nodeId);
+    const AliasTable& get_alias_table(int64_t nodeId);
 };
 
-inline const AliasTable& LRUTable::get_alias_table(size_t nodeID){
+inline const AliasTable& LRUTable::get_alias_table(int64_t nodeID){
     auto it = isNodePresent.find(nodeID);
     if(it != isNodePresent.end()){ // cache HIT
         
@@ -129,7 +129,7 @@ inline const AliasTable& LRUTable::get_alias_table(size_t nodeID){
     AliasTable newTable(weights);
 
     if(lst.size() >= MAXCAPACITY){
-        size_t lruNode = lst.back(); 
+        int64_t lruNode = lst.back(); 
         lst.pop_back();
         isNodePresent.erase(lruNode);
     }

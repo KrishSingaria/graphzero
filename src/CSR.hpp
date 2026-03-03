@@ -5,49 +5,49 @@
 #include <cstddef>
 
 class CSR{
-    // size_t is the type used for every data!!
+    // int64_t is the type used for every data!!
 private:
     MemoryMap* graphMap = nullptr;
 
     // defined as nnzRow[i] = nnzRow[i-1] + no of non zero row entries of ith row
-    size_t* nnzRow; 
-    size_t  sizeofnnzRow; // size in bytes
+    int64_t* nnzRow; 
+    int64_t  sizeofnnzRow; // size in bytes
     
-    size_t* colPtr;
-    size_t  sizeofcolPtr;   // size in bytes
+    int64_t* colPtr;
+    int64_t  sizeofcolPtr;   // size in bytes
     
     float* weightPtr;      // same size a colPtr
     
-    size_t flags;
-    size_t  num_nodes;  // num of nodes
-    size_t  num_edges;  // num of edges
+    int64_t flags;
+    int64_t  num_nodes;  // num of nodes
+    int64_t  num_edges;  // num of edges
 public:
     bool has_weights;   // if the graph has weights or not, 
     
     CSR(const char* graphPath);
     ~CSR();
 
-    size_t get_degree(size_t nodeId);
-    std::span<size_t> get_edges(size_t nodeId);
-    std::span<float> get_weights(size_t nodeId);
+    int64_t get_degree(int64_t nodeId);
+    std::span<int64_t> get_edges(int64_t nodeId);
+    std::span<float> get_weights(int64_t nodeId);
 
     void set_access_pattern(bool isRandom);
     
     // accessors
     
-    size_t* get_nnzRow(){
+    int64_t* get_nnzRow(){
         return nnzRow;
     }
-    size_t* get_colPtr(){
+    int64_t* get_colPtr(){
         return colPtr;
     }
     float* get_weights(){
         return weightPtr;
     }
-    size_t  get_num_nodes(){
+    int64_t  get_num_nodes(){
         return num_nodes;
     }
-    size_t  get_num_edges(){
+    int64_t  get_num_edges(){
         return num_edges;
     }
 };
@@ -70,8 +70,8 @@ inline CSR::CSR(const char* graphPath){
     this->flags = header.flags;
     this->has_weights = (flags & 1) != 0; 
 
-    this->nnzRow = reinterpret_cast<size_t*>(this->graphMap->get_data()) + header.offset_nnz/sizeof(size_t);
-    this->colPtr = reinterpret_cast<size_t*>(this->graphMap->get_data()) + header.offset_col/sizeof(size_t);
+    this->nnzRow = reinterpret_cast<int64_t*>(this->graphMap->get_data()) + header.offset_nnz/sizeof(int64_t);
+    this->colPtr = reinterpret_cast<int64_t*>(this->graphMap->get_data()) + header.offset_col/sizeof(int64_t);
     
     if(has_weights){
         char* base = static_cast<char*>(this->graphMap->get_data()); // 1byte shifts
@@ -88,24 +88,24 @@ inline CSR::~CSR(){
     this->weightPtr = nullptr;
 }
 
-inline size_t CSR::get_degree(size_t nodeId){
+inline int64_t CSR::get_degree(int64_t nodeId){
     // return degree of nodeId, how many conections it have 
     return this->nnzRow[nodeId+1] - this->nnzRow[nodeId];
 }
-inline std::span<size_t> CSR::get_edges(size_t nodeId){
+inline std::span<int64_t> CSR::get_edges(int64_t nodeId){
     // return the edges of nodeId
-    size_t* p =&this->colPtr[this->nnzRow[nodeId]];
-    size_t  d = this->get_degree(nodeId);
-    return std::span<size_t>(p,d);
+    int64_t* p =&this->colPtr[this->nnzRow[nodeId]];
+    int64_t  d = this->get_degree(nodeId);
+    return std::span<int64_t>(p,d);
 }
 
-inline std::span<float> CSR::get_weights(size_t nodeId){
+inline std::span<float> CSR::get_weights(int64_t nodeId){
     // return the weights of nodeId, only valid if has_weights is true
     if(!has_weights){
         throw std::runtime_error("Graph does not have weights");
     }
     float* p =&this->weightPtr[this->nnzRow[nodeId]];
-    size_t  d = this->get_degree(nodeId);
+    int64_t  d = this->get_degree(nodeId);
     return std::span<float>(p,d);
 }
 
