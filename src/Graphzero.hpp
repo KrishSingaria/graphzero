@@ -28,12 +28,12 @@ public:
     int64_t node2vec_step(int64_t curr, int64_t prev, float p, float q, const AliasTable& table);
 
     std::vector<int64_t> fySampling(int64_t nodeId, int k);
-    std::vector<int64_t> ReservoirSampling(int64_t nodeId, int k);
-    std::vector<int64_t> randomWalk(int64_t start_node, int64_t length, float p, float q);
+    void ReservoirSampling(int64_t nodeId, int k, int64_t* result);
+    void randomWalk(int64_t start_node, int64_t length, float p, float q,int64_t* walk);
     
-    std::vector<int64_t> batchRandomWalk(const std::vector<int64_t>& startNodes, int64_t walkLength, float p, float q);
-    std::vector<int64_t> batchRandomUniformWalk(const std::vector<int64_t>& startNodes, int64_t walkLength);
-    std::vector<int64_t> batchRandomFanout(const std::vector<int64_t>& startNodes, int64_t K);
+    std::vector<int64_t>* batchRandomWalk(const std::vector<int64_t>& startNodes, int64_t walkLength, float p, float q);
+    std::vector<int64_t>* batchRandomUniformWalk(const std::vector<int64_t>& startNodes, int64_t walkLength);
+    std::vector<int64_t>* batchRandomFanout(const std::vector<int64_t>& startNodes, int64_t K);
 
     CSR* get_storage(){
         return storage;
@@ -76,7 +76,7 @@ inline std::vector<int64_t> Graphzero::fySampling(int64_t nodeId, int k){
 }
 
 // use Reservoir Sampling Method, without weigths
-inline std::vector<int64_t> Graphzero::ReservoirSampling(int64_t nodeId, int k){
+inline void Graphzero::ReservoirSampling(int64_t nodeId, int k, int64_t* result){
     if(k < 1) return {};
 
     std::span<int64_t> neighbours = storage->get_edges(nodeId);
@@ -86,8 +86,10 @@ inline std::vector<int64_t> Graphzero::ReservoirSampling(int64_t nodeId, int k){
         return std::vector<int64_t>(neighbours.begin(),neighbours.end());
     }
     
-    // selection k neighbours
-    std::vector<int64_t> result(neighbours.begin(),neighbours.begin() + k); // first k elements
+    // selection k neighbours, first k elements
+    for(int i = 0; i < k; i++){
+        result[i] = neighbours[i];
+    }
     
     // Resevoir Sampling K elements 
     for(int64_t i = k; i < deg; i++){
@@ -136,7 +138,7 @@ inline int64_t Graphzero::node2vec_step(int64_t curr, int64_t prev, float p, flo
     
 }
 
-inline std::vector<int64_t> Graphzero::randomWalk(int64_t start_node, int64_t length, float p, float q){
+inline void Graphzero::randomWalk(int64_t start_node, int64_t length, float p, float q, int64_t* walk){
 
     auto weightFunc = [this](int64_t nodeID){
         if(this->has_weights) return this->storage->get_weights(nodeID);
@@ -152,9 +154,7 @@ inline std::vector<int64_t> Graphzero::randomWalk(int64_t start_node, int64_t le
 
     int64_t next,curr = start_node,prev;
 
-    std::vector<int64_t> walk;
-    walk.reserve(length);
-    walk.push_back(curr);
+    walk[0] = start_node;
 
     for (int64_t i = 1; i < length; i++)
     {
@@ -169,28 +169,26 @@ inline std::vector<int64_t> Graphzero::randomWalk(int64_t start_node, int64_t le
         }
         prev = curr;
         curr = next;
-        walk.push_back(next);
+        walk[i] = next;
     }
 
     return walk;
 }
 
 //keep p = 1.0f and q = 1.0f for default values.
-inline std::vector<int64_t> Graphzero::batchRandomWalk(const std::vector<int64_t>& startNodes, int64_t walkLength, float p, float q){
-    std::vector<int64_t> results(walkLength*startNodes.size());
+inline std::vector<int64_t>* Graphzero::batchRandomWalk(const std::vector<int64_t>& startNodes, int64_t walkLength, float p, float q){
+    std::vector<int64_t>* results = new std::vector<int64_t>(walkLength*startNodes.size());
 
     // set only for random walks 
     storage->set_access_pattern(true);
 
     #pragma omp parallel for
     for(signed long long i = 0; i < startNodes.size(); i++){
-        std::vector<int64_t> walk = randomWalk(startNodes[i],walkLength,p,q);
         
         // thread safe
         int64_t offset = i*walkLength;
-        for(int j = 0; j < walk.size(); j++){
-            results[j+offset] = walk[j];
-        }
+        
+        randomWalk(startNodes[i],walkLength,p,q, results->data() + offset);
     }
 
     // reset
@@ -198,8 +196,8 @@ inline std::vector<int64_t> Graphzero::batchRandomWalk(const std::vector<int64_t
     return results;
 }
 
-inline std::vector<int64_t> Graphzero::batchRandomUniformWalk(const std::vector<int64_t>& startNodes, int64_t walkLength){
-    std::vector<int64_t> results(walkLength*startNodes.size());
+inline std::vector<int64_t>* Graphzero::batchRandomUniformWalk(const std::vector<int64_t>& startNodes, int64_t walkLength){
+    std::vector<int64_t>* results = new std::vector<int64_t>(walkLength*startNodes.size());
     
     // set only for random walks 
     storage->set_access_pattern(true);
@@ -230,21 +228,18 @@ inline std::vector<int64_t> Graphzero::batchRandomUniformWalk(const std::vector<
 }
 
 
-inline std::vector<int64_t> Graphzero::batchRandomFanout(const std::vector<int64_t>& startNodes, int64_t K){
-    std::vector<int64_t> results(K * startNodes.size(), 0);
+inline std::vector<int64_t>* Graphzero::batchRandomFanout(const std::vector<int64_t>& startNodes, int64_t K){
+    std::vector<int64_t>* results = new std::vector<int64_t>(K * startNodes.size());
 
     // set only for sampling access pattern
     storage->set_access_pattern(true);
 
     #pragma omp parallel for
     for (signed long long i = 0; i < (signed long long)startNodes.size(); ++i) {
-        std::vector<int64_t> samples = ReservoirSampling(startNodes[i], (int)K);
 
         // thread safe write into results
-        int64_t offset = (int64_t)i * K;
-        for (int64_t j = 0; j < samples.size(); ++j) {
-            results[offset + j] = samples[j];
-        }
+        int64_t offset = i * K;
+        ReservoirSampling(startNodes[i], (int)K, results->data() + offset);
     }
 
     // reset

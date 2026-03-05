@@ -83,9 +83,8 @@ Returns:
         )
         
         .def("batch_random_walk", [](Graphzero &self, const std::vector<int64_t>& startNodes, int64_t walkLength, float p, float q) {
-            auto tmp = self.batchRandomWalk(startNodes, walkLength, p, q);
-            // convert to int64 for Python-facing ndarray (explicit copy)
-            std::vector<int64_t>* walkData = new std::vector<int64_t>(tmp.begin(), tmp.end());
+            // walkData pointer
+            std::vector<int64_t>* walkData = self.batchRandomWalk(startNodes, walkLength, p, q);
 
             // owner capsule will free the vector when Python releases it
             nb::capsule owner(walkData, [](void* p) noexcept {
@@ -117,8 +116,7 @@ Returns:
         )
 
         .def("batch_random_walk_uniform", [](Graphzero &self, const std::vector<int64_t>& startNodes, int64_t walkLength) {
-            auto tmp = self.batchRandomUniformWalk(startNodes, walkLength);
-            std::vector<int64_t>* walkData = new std::vector<int64_t>(tmp.begin(), tmp.end());
+            std::vector<int64_t>* walkData = self.batchRandomUniformWalk(startNodes, walkLength);
 
             nb::capsule owner(walkData, [](void* p) noexcept {
                 delete static_cast<std::vector<int64_t>*>(p);
@@ -145,8 +143,7 @@ Returns:
         )
 
         .def("batch_random_fanout", [](Graphzero &self, const std::vector<int64_t>& startNodes, int64_t K) {
-            auto tmp = self.batchRandomFanout(startNodes, K);
-            std::vector<int64_t>* walkData = new std::vector<int64_t>(tmp.begin(), tmp.end());
+            std::vector<int64_t>* walkData = self.batchRandomFanout(startNodes, K);
 
             nb::capsule owner(walkData, [](void* p) noexcept {
                 delete static_cast<std::vector<int64_t>*>(p);
@@ -173,8 +170,8 @@ Returns:
         )
         
         .def("sample_neighbours", [](Graphzero &self, int64_t startNode, int64_t K) {
-            auto tmp = self.ReservoirSampling(startNode, K);
-            std::vector<int64_t>* walkData = new std::vector<int64_t>(tmp.begin(), tmp.end());
+            std::vector<int64_t>* walkData = new std::vector<int64_t>(K);
+            self.ReservoirSampling(startNode, K, walkData->data());
 
             nb::capsule owner(walkData, [](void* p) noexcept {
                 delete static_cast<std::vector<int64_t>*>(p);
