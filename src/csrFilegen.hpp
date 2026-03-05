@@ -281,7 +281,7 @@ void convert_csv(const std::string& csv_path, const std::string& out_path, bool 
         
         max_node = std::max(max_node, (std::max)(u, v));
         if (u >= degrees.size() || v >= degrees.size()) {
-            int64_t new_max = (std::max)(u, v) + 1;
+            size_t new_max = (std::max)(u, v) + 1;
             if (new_max > degrees.size()) {
                 degrees.resize((std::max)(new_max, degrees.size() * 2), 0);
             }

@@ -92,8 +92,8 @@ Returns:
             });
 
             return nb::ndarray<nb::numpy, int64_t, nb::shape<2>>(
-                reinterpret_cast<int64_t*>(walkData->data()),
-                {startNodes.size(),walkLength },
+                walkData->data(),
+                {startNodes.size(),static_cast<size_t>(walkLength) },
                 owner
             );
         },
@@ -123,8 +123,8 @@ Returns:
             });
 
             return nb::ndarray<nb::numpy, int64_t, nb::shape<2>>(
-                reinterpret_cast<int64_t*>(walkData->data()),
-                {startNodes.size(),walkLength },
+                walkData->data(),
+                {startNodes.size(),static_cast<size_t>(walkLength)},
                 owner
             );
         },
@@ -150,8 +150,8 @@ Returns:
             });
 
             return nb::ndarray<nb::numpy, int64_t, nb::shape<2>>(
-                reinterpret_cast<int64_t*>(walkData->data()),
-                {startNodes.size(),K },
+                walkData->data(),
+                {startNodes.size(),static_cast<size_t>(K) },
                 owner
             );
         },
@@ -178,7 +178,7 @@ Returns:
             });
 
             return nb::ndarray<nb::numpy, int64_t, nb::shape<1>>(
-                reinterpret_cast<int64_t*>(walkData->data()),
+                walkData->data(),
                 {walkData->size() },
                 owner
             );

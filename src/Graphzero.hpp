@@ -77,13 +77,15 @@ inline std::vector<int64_t> Graphzero::fySampling(int64_t nodeId, int k){
 
 // use Reservoir Sampling Method, without weigths
 inline void Graphzero::ReservoirSampling(int64_t nodeId, int k, int64_t* result){
-    if(k < 1) return {};
+    if(k < 1) return;
 
     std::span<int64_t> neighbours = storage->get_edges(nodeId);
     int64_t deg = neighbours.size();
 
     if(deg <= (int64_t)k){
-        return std::vector<int64_t>(neighbours.begin(),neighbours.end());
+        for(int i = 0; i < deg; i++){
+            result[i] = neighbours[i];
+        }
     }
     
     // selection k neighbours, first k elements
@@ -98,8 +100,6 @@ inline void Graphzero::ReservoirSampling(int64_t nodeId, int k, int64_t* result)
             result[j] = neighbours[i];
         }
     }
-
-    return result;
 }
 
 // is v neighbor of u ? 
@@ -171,8 +171,6 @@ inline void Graphzero::randomWalk(int64_t start_node, int64_t length, float p, f
         curr = next;
         walk[i] = next;
     }
-
-    return walk;
 }
 
 //keep p = 1.0f and q = 1.0f for default values.
@@ -205,19 +203,19 @@ inline std::vector<int64_t>* Graphzero::batchRandomUniformWalk(const std::vector
     #pragma omp parallel for
     for(signed long long i = 0; i < startNodes.size(); i++){
         // walking here 
-        int64_t offset = i*walkLength;
+        int64_t offset = (int64_t)(i*walkLength);
         int64_t curr = startNodes[i], next;
-        results[offset] = curr;
+        (*results)[offset] = curr;
         for(int64_t j = 1; j < walkLength; ++j){
             auto edges = storage->get_edges(curr);
 
             if(edges.size() == 0){
-                results[offset+j] = curr;
+                (*results)[offset+j] = curr;
                 continue;
             }
 
             next = edges[RNG.rand_int(0,edges.size()-1)];
-            results[offset + j] = next;
+            (*results)[offset + j] = next;
             curr = next;
         }   
     }
