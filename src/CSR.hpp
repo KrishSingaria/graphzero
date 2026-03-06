@@ -1,6 +1,7 @@
 #ifndef CSR_H
 #define CSR_H
 #include "MemoryMap.hpp"
+#include "csrFilegen.hpp"
 #include <span>
 #include <cstddef>
 
@@ -41,7 +42,7 @@ public:
     int64_t* get_colPtr(){
         return colPtr;
     }
-    float* get_weights(){
+    float* get_weightsPtr(){
         return weightPtr;
     }
     int64_t  get_num_nodes(){
@@ -75,8 +76,8 @@ inline CSR::CSR(const char* graphPath){
     
     if(has_weights){
         char* base = static_cast<char*>(this->graphMap->get_data()); // 1byte shifts
-
-        this->weightPtr = reinterpret_cast<float*>(base + header.offset_col + this->sizeofcolPtr);
+        uint64_t offset_weights = align64(header.offset_col + this->sizeofcolPtr);
+        this->weightPtr = reinterpret_cast<float*>(base + offset_weights);
     }else this->weightPtr = nullptr;  
 }
 
@@ -89,11 +90,15 @@ inline CSR::~CSR(){
 }
 
 inline int64_t CSR::get_degree(int64_t nodeId){
-    // return degree of nodeId, how many conections it have 
+    // return degree of nodeId, how many conections it have
+    if(nodeId >= num_nodes) return 0;
     return this->nnzRow[nodeId+1] - this->nnzRow[nodeId];
 }
 inline std::span<int64_t> CSR::get_edges(int64_t nodeId){
     // return the edges of nodeId
+    if(nodeId>= num_nodes){
+        throw std::runtime_error("NodeId is greater than number of nodes.");
+    }
     int64_t* p =&this->colPtr[this->nnzRow[nodeId]];
     int64_t  d = this->get_degree(nodeId);
     return std::span<int64_t>(p,d);
@@ -101,11 +106,14 @@ inline std::span<int64_t> CSR::get_edges(int64_t nodeId){
 
 inline std::span<float> CSR::get_weights(int64_t nodeId){
     // return the weights of nodeId, only valid if has_weights is true
+    if(nodeId>= num_nodes){
+        throw std::runtime_error("NodeId is greater than number of nodes.");
+    }
     if(!has_weights){
         throw std::runtime_error("Graph does not have weights");
     }
     float* p =&this->weightPtr[this->nnzRow[nodeId]];
-    int64_t  d = this->get_degree(nodeId);
+    int64_t d = this->get_degree(nodeId);
     return std::span<float>(p,d);
 }
 

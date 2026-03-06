@@ -108,10 +108,10 @@ private:
 public:
     LRUTable(int64_t maxCapacity, std::function<std::span<float>(int64_t)> weightFunc) : MAXCAPACITY(maxCapacity), getWeights(weightFunc) {}
 
-    const AliasTable& get_alias_table(int64_t nodeId);
+    const AliasTable& get_alias_table(int64_t nodeId,int64_t nodeDegree);
 };
 
-inline const AliasTable& LRUTable::get_alias_table(int64_t nodeID){
+inline const AliasTable& LRUTable::get_alias_table(int64_t nodeID, int64_t nodeDegree){
     auto it = isNodePresent.find(nodeID);
     if(it != isNodePresent.end()){ // cache HIT
         
@@ -125,6 +125,10 @@ inline const AliasTable& LRUTable::get_alias_table(int64_t nodeID){
     // Weights
     std::span<float> span_w = getWeights(nodeID);
     std::vector<float> weights(span_w.begin(),span_w.end());
+
+    if(weights.empty()){
+        weights = std::vector<float>(nodeDegree,1.0);
+    }
     
     AliasTable newTable(weights);
 

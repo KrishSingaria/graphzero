@@ -47,8 +47,7 @@ Returns:
             // the Graph object alive as the owner.
             return nb::ndarray<nb::numpy, int64_t, nb::shape<1>>(
                 const_cast<int64_t*>(edges.data()), // pointer to data
-                { edges.size() },                 // shape
-                nb::cast(self)                    // owner: keep Graph instance alive
+                { edges.size() }                    // shape
             );
         },
             nb::keep_alive<0,1>(),
@@ -68,8 +67,7 @@ Returns:
             // the Graph object alive as the owner.
             return nb::ndarray<nb::numpy, float, nb::shape<1>>(
                 const_cast<float*>(weights.data()), // pointer to data
-                { weights.size() },                 // shape
-                nb::cast(self)                    // owner: keep Graph instance alive
+                { weights.size() }                  // shape
             );
         },
             nb::keep_alive<0,1>(),
@@ -93,7 +91,7 @@ Returns:
 
             return nb::ndarray<nb::numpy, int64_t, nb::shape<2>>(
                 walkData->data(),
-                {startNodes.size(),static_cast<size_t>(walkLength) },
+                {startNodes.size(),static_cast<size_t>(walkLength + 1) },
                 owner
             );
         },
@@ -124,7 +122,7 @@ Returns:
 
             return nb::ndarray<nb::numpy, int64_t, nb::shape<2>>(
                 walkData->data(),
-                {startNodes.size(),static_cast<size_t>(walkLength)},
+                {startNodes.size(),static_cast<size_t>(walkLength + 1)},
                 owner
             );
         },
@@ -170,7 +168,7 @@ Returns:
         )
         
         .def("sample_neighbours", [](Graphzero &self, int64_t startNode, int64_t K) {
-            std::vector<int64_t>* walkData = new std::vector<int64_t>(K);
+            std::vector<int64_t>* walkData = new std::vector<int64_t>((std::min)(K,self.get_storage()->get_degree(startNode)));
             self.ReservoirSampling(startNode, K, walkData->data());
 
             nb::capsule owner(walkData, [](void* p) noexcept {

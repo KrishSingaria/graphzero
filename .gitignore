@@ -8,3 +8,5 @@ benchmark/dataset
 *.zip
 *.npz
 benchmark/*.csv
+
+*_pycache__/
