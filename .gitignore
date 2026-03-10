@@ -5,8 +5,10 @@ benchmark/dataset
 
 *.exe
 *.gl
+*.gd
 *.zip
 *.npz
 benchmark/*.csv
 
 *_pycache__/
+.pytest_cache/

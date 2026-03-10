@@ -5,20 +5,23 @@ import graphzero as gz
 
 @pytest.fixture
 def graph1():
-    if not os.path.exists("tests/graph1.gl"):
-        gz.convert_csv_to_gl("tests/graph1.csv", "tests/graph1.gl")
+    if os.path.exists("tests/graph1.gl"):
+        os.remove("tests/graph1.gl")
+    gz.convert_csv_to_gl("tests/graph1.csv", "tests/graph1.gl")
     return gz.Graph("tests/graph1.gl")
 
 @pytest.fixture
 def graph2():
-    if not os.path.exists("tests/graph2.gl"):
-        gz.convert_csv_to_gl("tests/graph2.csv", "tests/graph2.gl")
+    if os.path.exists("tests/graph2.gl"):
+        os.remove("tests/graph2.gl")
+    gz.convert_csv_to_gl("tests/graph2.csv", "tests/graph2.gl")
     return gz.Graph("tests/graph2.gl")
 
 @pytest.fixture
 def graph3():
-    if not os.path.exists("tests/graph3.gl"):
-        gz.convert_csv_to_gl("tests/graph3.csv", "tests/graph3.gl", directed=True)
+    if os.path.exists("tests/graph3.gl"):
+        os.remove("tests/graph3.gl")
+    gz.convert_csv_to_gl("tests/graph3.csv", "tests/graph3.gl", directed=True)
     return gz.Graph("tests/graph3.gl")
 
 def test_properties(graph1, graph2):
@@ -76,3 +79,53 @@ def test_memory_stability(graph2):
     for _ in range(1000):
         _ = graph2.batch_random_walk(nodes, 10)
     assert True 
+
+
+# feature store tests
+
+# A fixture to generate the test data once
+@pytest.fixture
+def feature_store():
+    csv_path = "tests/features.csv"
+    gd_path = "tests/features.gd"
+        
+    # Compile to binary using FLOAT32
+    if os.path.exists(gd_path):
+        os.remove(gd_path)
+    gz.convert_csv_to_gd(csv_path, gd_path, gz.DataType.FLOAT32)
+    
+    return gz.FeatureStore(gd_path)
+
+def test_feature_metadata(feature_store):
+    # Max ID was 3, so num_nodes should be 4
+    assert feature_store.num_nodes == 4 
+    assert feature_store.feature_dim == 2
+
+def test_get_data(feature_store):
+    # Check Node 0
+    node0 = feature_store.get_data(0)
+    np.testing.assert_array_almost_equal(node0, [1.5, 2.5])
+    
+    # Check Node 1 (It was missing in CSV, so it should be padded with 0.0)
+    node1 = feature_store.get_data(1)
+    np.testing.assert_array_almost_equal(node1, [0.0, 0.0])
+
+def test_get_tensor(feature_store):
+    tensor = feature_store.get_tensor()
+    
+    # Check the full shape
+    assert tensor.shape == (4, 2)
+    
+    # PyTorch/Numpy slicing test
+    expected_matrix = np.array([
+        [1.5, 2.5],
+        [0.0, 0.0],
+        [3.5, 4.5],
+        [5.5, 6.5]
+    ], dtype=np.float32)
+    
+    np.testing.assert_array_almost_equal(tensor, expected_matrix)
+
+def test_out_of_bounds(feature_store):
+    with pytest.raises(Exception):
+        feature_store.get_data(999) # Should trigger your C++ runtime_error

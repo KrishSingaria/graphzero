@@ -5,6 +5,8 @@
 #include <nanobind/stl/string.h>
 #include "Graphzero.hpp"
 #include "csrFilegen.hpp"
+#include "featureFilegen.hpp"
+#include "FeatureStore.hpp"
 #include <vector>
 namespace nb = nanobind;
 
@@ -23,9 +25,9 @@ Returns:
 )doc",
             nb::arg("filename")
         ) 
-        .def_rw("num_nodes",&Graphzero::num_nodes)
-        .def_rw("num_edges",&Graphzero::num_edges)
-        .def_rw("has_weights",&Graphzero::has_weights)
+        .def_ro("num_nodes",&Graphzero::num_nodes)
+        .def_ro("num_edges",&Graphzero::num_edges)
+        .def_ro("has_weights",&Graphzero::has_weights)
 
 
         .def("get_degree", [](Graphzero &self, int64_t node_id) {
@@ -215,9 +217,159 @@ Returns:
     
     // convert csv to gl 
     m.def("convert_csv_to_gl", &convert_csv,
-        "Convert a CSV edge list to GraphZero binary format (.gl)",
+R"doc(Convert a CSV edge list to GraphZero binary format (.gl))doc",
         nb::arg("csv_path"), 
         nb::arg("out_path"), 
         nb::arg("directed") = false,
+        nb::call_guard<nb::gil_scoped_release>());
+        
+    // Feature store class
+    
+    // Bind the DataType Enum so Python can pass it to the converter
+    nb::enum_<DataType>(m, "DataType")
+        .value("INT32", DataType::INT32)
+        .value("INT64", DataType::INT64)
+        .value("FLOAT32", DataType::FLOAT32)
+        .value("FLOAT64", DataType::FLOAT64)
+        .export_values();
+
+    nb::class_<FeatureStore>(m, "FeatureStore")
+        .def(nb::init<const char*>(), // constructor
+R"doc(Data Class contains the Datafile and its relevant functions and methods.
+It holds the mmap / zero-copy memory.
+Args:
+    filename (str): either absolute path or relative path (depends on the current working directory).
+Returns:
+    FeatureStorage instance.
+)doc",
+            nb::arg("filename")
+        ) 
+        .def_ro("num_nodes",&FeatureStore::num_nodes)
+        .def_ro("feature_dim",&FeatureStore::feature_dim)
+        .def("get_data",[](FeatureStore &self,int64_t nodeId) -> nb::object { 
+            switch(self.get_dtype()){
+                case DataType::INT32: {                    
+                    auto data = self.get_data<int32_t>(nodeId);
+                    auto arr = nb::ndarray<nb::numpy, int32_t, nb::shape<1>>(
+                        const_cast<int32_t*>(data.data()), // pointer to data
+                        { data.size() }                    // shape
+                    );
+                    return nb::cast(arr);
+                }
+                case DataType::INT64: {
+                    
+                    auto data = self.get_data<int64_t>(nodeId);
+                    auto arr = nb::ndarray<nb::numpy, int64_t, nb::shape<1>>(
+                        const_cast<int64_t*>(data.data()), // pointer to data
+                        { data.size() }                    // shape
+                    );
+                    return nb::cast(arr);
+                }
+                case DataType::FLOAT32: {  
+                    auto data = self.get_data<float>(nodeId);
+                    auto arr = nb::ndarray<nb::numpy, float, nb::shape<1>>(
+                        const_cast<float*>(data.data()),    // pointer to data
+                        { data.size() }                    // shape
+                    );
+                    return nb::cast(arr);
+                }
+                case DataType::FLOAT64: {
+                    auto data = self.get_data<double>(nodeId);
+                    auto arr = nb::ndarray<nb::numpy, double, nb::shape<1>>(
+                        const_cast<double*>(data.data()), // pointer to data
+                        { data.size() }                    // shape
+                    );
+                    return nb::cast(arr);
+                }
+                default: throw std::runtime_error("Unsupported data type");
+            }
+
+            // Return a zero-copy view into the underlying data buffer and keep
+        },
+            nb::keep_alive<0,1>(),
+R"doc(Returns the data of a node.
+Args:
+    node_id (int)
+Returns:
+    1-D numpy ndarray of data for nodeId.
+)doc",
+            nb::arg("node_id")
+        )
+        .def("get_tensor",[](FeatureStore &self) -> nb::object {
+            char* data = self.get_data_ptr();
+            size_t n = self.num_nodes;
+            size_t f = self.feature_dim;
+
+            switch(self.get_dtype()){
+                case DataType::INT32: {
+                    int32_t* ptr = reinterpret_cast<int32_t*>(data);
+
+                    auto arr = nb::ndarray<nb::numpy, int32_t, nb::shape<2>>(
+                        ptr, // pointer to data
+                        {n,f } // shape
+                    );
+                    return nb::cast(arr);
+                }
+                case DataType::INT64: {
+                    int64_t* ptr = reinterpret_cast<int64_t*>(data);
+
+                    auto arr = nb::ndarray<nb::numpy, int64_t, nb::shape<2>>(
+                        ptr, // pointer to data
+                        {n,f } // shape
+                    );
+                    return nb::cast(arr);
+                }
+                case DataType::FLOAT32: {
+                    float* ptr = reinterpret_cast<float*>(data);
+
+                    auto arr = nb::ndarray<nb::numpy, float, nb::shape<2>>(
+                        ptr, // pointer to data
+                        {n,f } // shape
+                    );
+                    return nb::cast(arr);
+                }
+                case DataType::FLOAT64: {
+                    double* ptr = reinterpret_cast<double*>(data);
+
+                    auto arr = nb::ndarray<nb::numpy, double, nb::shape<2>>(
+                        ptr, // pointer to data
+                        {n,f } // shape
+                    );
+                    return nb::cast(arr);
+                }
+                default: throw std::runtime_error("Unsupported data type");
+            }
+        },
+            nb::keep_alive<0,1>(),
+R"doc(Returns the entire Data (tensor).
+Returns:
+    NxF data of given dtype.
+)doc"
+        )
+        
+        // serialization (Pack)
+        .def("__getstate__", [](const FeatureStore &d){
+
+            return nb::make_tuple(d.filename); // only filename required to rebuild the object
+        })
+        // deserialization (unpack)
+        .def("__setstate__",[](nb::tuple &t){
+            
+            if (t.size() != 1) 
+                throw std::runtime_error("Invalid state!");
+            
+            std::string filename = nb::cast<std::string>(t[0]);
+
+            // create new c++ object using the filename
+            return new FeatureStore(filename.c_str());
+        })
+        ;
+        
+    //feature store data
+    m.def("convert_csv_to_gd", &convert_csv_to_binary,
+R"doc(Convert a CSV data to GraphZero data format (.gd).)doc",
+        nb::arg("csv_path"), 
+        nb::arg("out_path"), 
+        nb::arg("dtype"),
         nb::call_guard<nb::gil_scoped_release>());
 }

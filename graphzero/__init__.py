@@ -1,4 +1,4 @@
-from .graphzero import Graph, convert_csv_to_gl
+from .graphzero import Graph, convert_csv_to_gl, convert_csv_to_gd, DataType, FeatureStore
 
 # Metadata
 __version__ = "0.1.2"
