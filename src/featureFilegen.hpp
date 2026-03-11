@@ -8,6 +8,7 @@
 #include <charconv>
 #include <algorithm>
 #include "FeatureStore.hpp"
+#include <type_traits>
 #include <omp.h>
 
 // PLATFORM DEPENDENT INCLUDES
@@ -83,7 +84,20 @@ void parse_and_write_features(const std::string& csv_path, char* map_addr, uint6
             
             // Parse the correct type T
             T feature_value;
-            std::from_chars(feature_str.data(), feature_str.data() + feature_str.size(), feature_value);
+            #if defined(__APPLE__)
+                // Apple's libc++ doesn't support float from_chars yet, so we safely fallback
+                if constexpr (std::is_same_v<T, float>) {
+                    feature_value = std::stof(std::string(feature_str));
+                } else if constexpr (std::is_same_v<T, double>) {
+                    feature_value = std::stod(std::string(feature_str));
+                } else {
+                    // Apple does support it for integers!
+                    std::from_chars(feature_str.data(), feature_str.data() + feature_str.size(), feature_value);
+                }
+            #else
+                // Windows and Linux get the ultra-fast C++17 standard parsing
+                std::from_chars(feature_str.data(), feature_str.data() + feature_str.size(), feature_value);
+            #endif
             
             feature_data_ptr[node_id * feature_dim + f] = feature_value;
             
