@@ -9,6 +9,11 @@ jobs:
   build_wheels:
       name: Build wheels on ${{ matrix.os }}
       runs-on: ${{ matrix.os }}
+      
+      # 1. Fix for the Node.js 20 deprecation warning
+      env:
+        FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+        
       strategy:
         matrix:
           os: [ubuntu-latest, windows-latest, macos-latest]
@@ -16,20 +21,40 @@ jobs:
       steps:
         - uses: actions/checkout@v4
 
+        # 2. Cache block to fix the HTTP 429 Too Many Requests error
+        - name: Cache cibuildwheel downloads
+          uses: actions/cache@v4
+          env:
+            cache-name: cache-cibuildwheel
+          with:
+            path: |
+              ~/.cache/cibuildwheel
+              ~/Library/Caches/cibuildwheel
+              ~\AppData\Local\cibuildwheel\Cache
+            key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ github.sha }}
+            restore-keys: |
+              ${{ runner.os }}-build-${{ env.cache-name }}-
+              ${{ runner.os }}-build-
+              ${{ runner.os }}-
+
+        # 3. Upgraded cibuildwheel version
         - name: Build wheels
-          uses: pypa/cibuildwheel@v2.16.5
+          uses: pypa/cibuildwheel@v2.22.0
           env:
             # SKIP: Old Python, PyPy, Musl (Alpine), and 32-bit Linux
             CIBW_SKIP: "cp36-* cp37-* cp38-* pp* *musllinux* *i686*"
             
-            # LINUX: Force C++17 (compatible with manylinux2014)
-            CIBW_ENVIRONMENT_LINUX: "CXXFLAGS='-std=c++17'"
+            # WINDOWS: Force 64-bit only to prevent MSVC uint64_t pointer crashes
+            CIBW_ARCHS_WINDOWS: "AMD64"
             
-            # MACOS: Install OpenMP and configure paths
+            # LINUX: Force C++20 for GraphZero v0.2 (<std::span> support)
+            CIBW_ENVIRONMENT_LINUX: "CXXFLAGS='-std=c++20'"
+            
+            # MACOS: Install OpenMP, configure paths, and force C++20
             CIBW_BEFORE_ALL_MACOS: "brew install libomp"
             CIBW_ENVIRONMENT_MACOS: >
               CFLAGS="-Xpreprocessor -fopenmp -I$(brew --prefix libomp)/include"
-              CXXFLAGS="-Xpreprocessor -fopenmp -I$(brew --prefix libomp)/include"
+              CXXFLAGS="-std=c++20 -Xpreprocessor -fopenmp -I$(brew --prefix libomp)/include"
               LDFLAGS="-L$(brew --prefix libomp)/lib -lomp"
               OpenMP_ROOT="$(brew --prefix libomp)"
             # MACOS: Prevent cross-compilation errors (build arm64 on arm64 runner)
