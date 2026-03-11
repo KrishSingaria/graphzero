@@ -1,3 +1,4 @@
+import enum
 from typing import List, Tuple, Any, Union
 import numpy as np
 import numpy.typing as npt
@@ -100,6 +101,52 @@ class Graph:
     def __setstate__(self, state: tuple) -> None: ...
 
 
+class DataType(enum.Enum):
+    """
+    Enum DataType only For FeatureStore datatype
+    
+    use gz.DataType.INT32, gz.DataType.INT64, gz.DataType.FLOAT32, gz.DataType.FLOAT64 when converting csv to gd.
+    """
+    INT32 = 0,
+    INT64 = 1,
+    FLOAT32 = 2,
+    FLOAT64 = 3
+    
+
+class FeatureStore:
+    """
+    FeatureStore Class contains the datafile and its relevant functions and methods.
+    It holds the mmap / zero-copy memory to Features Matrix.
+    """
+    num_nodes: int
+    feature_dim: int
+    
+    def __init__(self, filename: str) -> None:
+        """
+        Args:
+            filename (str): either absolute path or relative path (depends on the current working directory).
+        Returns:
+            FeatureStore class instance.
+        """
+        ...
+    def get_data(self, node_id: int) -> npt.NDArray[Any]:
+        """
+        Get the features of a node ID.
+
+        Args:
+            node_id (int): Node ID to retrieve features for.
+        Returns:
+            1-D numpy ndarray of shape (feature_dim,).
+        """
+        ...
+    def get_tensor(self) -> npt.NDArray[Any]:
+        """
+        Returns the entire Data (tensor).
+        Returns:
+            2-D numpy ndarray of shape (num_nodes, feature_dim) with the given dtype.
+        """
+        ...
+
 def convert_csv_to_gl(csv_path: str, out_path: str, directed: bool = False) -> None:
     """
     Convert a CSV edge list to GraphZero binary format (.gl)
@@ -108,5 +155,16 @@ def convert_csv_to_gl(csv_path: str, out_path: str, directed: bool = False) -> N
         csv_path (str): Path to input CSV.
         out_path (str): Path to output .gl file.
         directed (bool): Whether the graph is directed. Defaults to False.
+    """
+    ...
+    
+def convert_csv_to_gd(csv_path: str, out_path: str, dtype: DataType) -> None:
+    """
+    Convert a CSV data to GraphZero data format (.gd).
+
+    Args:
+        csv_path (str): Path to input CSV.
+        out_path (str): Path to output .gd file.
+        dtype (DataType): Data type of the features MUST BE SET BY THE USER.
     """
     ...

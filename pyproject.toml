@@ -4,7 +4,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "graphzero"
-version = "0.1.2"
+version = "0.2.0"
 description = "High-performance Zero-Copy Graph Engine"
 authors = [{ name = "Krish", email = "krishsingaria2005@gmail.com" }]
 readme = "README.md"

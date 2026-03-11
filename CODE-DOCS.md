@@ -73,17 +73,67 @@ Performs uniform neighbour sampling for a single node using **reservoir sampling
 * **Behavior:** Returns up to `K` neighbour IDs sampled uniformly at random. If the node degree <= `K`, all neighbours are returned.
 * **Return shape & dtype:** 1-D `ndarray` of length `<= K`, dtype `np.int64`.
 
+## 🗄️ Feature Engine: `FeatureStore` & `DataType`
+
+The main entry point for zero-copy node feature matrices. It maps massive datasets directly into Numpy/PyTorch without consuming RAM.
+
+`
+fs = gz.FeatureStore("path/to/features.gd")
+`
+
+### Properties
+
+| Property | Type | Description |
+| --- | --- | --- |
+| `fs.num_nodes` | `int` | Total number of nodes (rows). |
+| `fs.feature_dim` | `int` | Number of features per node (columns). |
+
+### Methods
+
+#### `get_data(node_id: int) -> numpy.ndarray`
+
+Returns the features for a single specific node ID.
+
+* **Return shape & dtype:** 1-D `ndarray` of shape `(feature_dim,)`. The underlying dtype matches the `DataType` used during conversion.
+
+#### `get_tensor() -> numpy.ndarray`
+
+Returns a zero-copy view of the *entire* feature matrix.
+
+* **Behavior:** Hands Python a direct pointer to the memory-mapped file. It consumes **0 Bytes of RAM** upon calling. Data is only paged into memory by the OS when PyTorch actively indexes a specific row during training.
+* **Return shape & dtype:** 2-D `ndarray` of shape `(num_nodes, feature_dim)`.
+
 ## 🛠️ Utilities
 
 #### `gz.convert_csv_to_gl(input_csv: str, output_bin: str, directed: bool)`
 
 Converts a raw Edge List CSV into the optimized GraphLite binary format (`.gl`).
 
-* **Input CSV Format:** Two columns (Source, Destination). Headers are ignored if they exist.
+* **Input CSV Format:** Two/Three columns (Source, Destination, Weight(optional)). Headers are ignored if they exist.
 * **Process:** 1.  **Pass 1:** Scans file to count degrees (Memory: Low).
 2.  **Allocation:** Creates the `.gl` file and `mmaps` it.
 3.  **Pass 2:** Reads CSV again and places edges into the correct memory buckets.
 * **Note:** This process handles graphs larger than RAM.
+
+#### 'DataType' Enum
+
+`DataType` is an enumeration that defines the supported data types for feature storage. It ensures that the binary files created by `convert_csv_to_gd` have a consistent and optimized memory layout.
+available data types include:
+- `gz.DataType.INT32`: 32-bit signed integer.
+- `gz.DataType.INT64`: 64-bit signed integer.
+- `gz.DataType.FLOAT32`: 32-bit floating-point number.
+- `gz.DataType.FLOAT64`: 64-bit floating-point number.
+
+#### `gz.convert_csv_to_gd(csv_path: str, out_path: str, dtype: gz.DataType)`
+
+Converts a raw feature CSV into the optimized GraphZero Data format (`.gd`).
+
+* **Input CSV Format:** The first column must be the `NodeID`, followed by its features separated by commas (e.g., `0, 0.5, 0.1, 0.9...`).
+* **Arguments:**
+  - `dtype` (`DataType`): Strictly enforces the memory layout of the resulting binary file (e.g., `gz.DataType.FLOAT32`).
+* **Process:** 1. **Pass 1 (Zero-Allocation):** Fast-scans the CSV using C++ `string_view` to find the maximum Node ID and feature dimension without triggering heap allocations.
+  2. **Allocation:** `mmaps` a perfectly sized, C-contiguous binary file.
+  3. **Pass 2:** Parses and writes the features. Automatically handles missing Node IDs by leaving their rows safely padded with zeroes.
 
 
 # 🧠 Example: Training Node2Vec with PyTorch
@@ -223,3 +273,149 @@ This example showcases how `GraphZero` can be seamlessly integrated into a PyTor
 here is the screenshot of the output when running the script:
 
 ![Training Output](benchmark/images/examplecode.png)
+
+# 🧠 Example 2: End-to-End GraphSAGE with Zero-Copy Features
+
+This script is a complete, runnable example. It generates a synthetic graph dataset, compiles it into GraphZero's zero-copy formats (`.gl` and `.gd`), and trains a GraphSAGE model. 
+
+Notice how we use `gz.FLOAT32` for the node features and `gz.INT64` for the classification labels. Both are memory-mapped directly into PyTorch natively without consuming system RAM.
+
+**File:** `train_graphsage.py`
+
+```python
+import os
+import time
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import graphzero as gz
+import numpy as np
+from torch.utils.data import DataLoader, Dataset
+
+# --- 1. CONFIGURATION & DATA GENERATION ---
+NUM_NODES = 50_000
+NUM_EDGES = 200_000
+FEATURE_DIM = 32
+NUM_CLASSES = 10
+FANOUT_K = 5
+BATCH_SIZE = 1024
+
+def generate_synthetic_data():
+    """Generates synthetic CSVs if they don't exist yet."""
+    if os.path.exists("dataset/edges.csv"): return
+    os.makedirs("dataset", exist_ok=True)
+    
+    print("Generating synthetic dataset (CSVs)...")
+    # Edges
+    src = np.random.randint(0, NUM_NODES, NUM_EDGES)
+    dst = np.random.randint(0, NUM_NODES, NUM_EDGES)
+    with open("dataset/edges.csv", "w") as f:
+        for s, d in zip(src, dst): f.write(f"{s},{d}\n")
+            
+    # Features (Float32)
+    with open("dataset/features.csv", "w") as f:
+        for i in range(NUM_NODES):
+            feats = ",".join([f"{np.random.randn():.4f}" for _ in range(FEATURE_DIM)])
+            f.write(f"{i},{feats}\n")
+            
+    # Labels (Int64)
+    with open("dataset/labels.csv", "w") as f:
+        for i in range(NUM_NODES):
+            f.write(f"{i},{np.random.randint(0, NUM_CLASSES)}\n")
+
+generate_synthetic_data()
+
+# --- 2. GRAPHZERO CONVERSION (CSV -> Binary) ---
+print("\nConverting CSVs to GraphZero formats...")
+if not os.path.exists("graph.gl"):
+    gz.convert_csv_to_gl("dataset/edges.csv", "graph.gl", directed=True)
+if not os.path.exists("features.gd"):
+    gz.convert_csv_to_gd("dataset/features.csv", "features.gd", dtype=gz.DataType.FLOAT32)
+if not os.path.exists("labels.gd"):
+    gz.convert_csv_to_gd("dataset/labels.csv", "labels.gd", dtype=gz.DataType.INT64)
+
+# --- 3. ZERO-COPY MOUNTING ---
+print("\nMounting Zero-Copy Engines...")
+g = gz.Graph("graph.gl")
+fs_feats = gz.FeatureStore("features.gd")
+fs_labels = gz.FeatureStore("labels.gd")
+
+print(f"Graph Mounted. Nodes: {g.num_nodes:,} | Edges: {g.num_edges:,}")
+
+# Instantly map SSD data to PyTorch (RAM used: 0 Bytes)
+X = torch.from_numpy(fs_feats.get_tensor())
+Y = torch.from_numpy(fs_labels.get_tensor()).squeeze() # Squeeze (N, 1) to (N,)
+
+print(f"Feature Tensor: {X.shape} ({X.dtype})")
+print(f"Label Tensor:   {Y.shape} ({Y.dtype})")
+
+
+# --- 4. PYTORCH DATALOADER & COLLATOR ---
+class TargetNodeDataset(Dataset):
+    def __len__(self): return NUM_NODES
+    def __getitem__(self, idx): return idx
+
+def collate_neighborhoods(batch_nodes):
+    targets = [int(n) for n in batch_nodes]
+    # Fast C++ neighbor sampling (Releases GIL)
+    neighbors = g.batch_random_fanout(targets, FANOUT_K)
+    return torch.tensor(targets, dtype=torch.long), torch.tensor(neighbors, dtype=torch.long)
+
+loader = DataLoader(
+    TargetNodeDataset(), batch_size=BATCH_SIZE, 
+    collate_fn=collate_neighborhoods, shuffle=True
+)
+
+
+# --- 5. THE GRAPHSAGE MODEL ---
+class GraphSAGE(nn.Module):
+    def __init__(self, in_dim, hidden_dim, out_dim):
+        super().__init__()
+        self.fc = nn.Linear(in_dim * 2, hidden_dim)
+        self.classifier = nn.Linear(hidden_dim, out_dim)
+        self.relu = nn.ReLU()
+        
+    def forward(self, target_nodes, neighbor_nodes):
+        # OS Page Fault Magic: 
+        # PyTorch indexes the mapped SSD tensor, pulling only required 4KB blocks
+        target_feats = X[target_nodes] 
+        neighbor_feats = X[neighbor_nodes] 
+        
+        # Mean pool the neighbors' features
+        agg_neighbor_feats = neighbor_feats.mean(dim=1) 
+        
+        # Concat [Target || Aggregated] and pass through NN
+        combined = torch.cat([target_feats, agg_neighbor_feats], dim=1)
+        return self.classifier(self.relu(self.fc(combined)))
+
+
+# --- 6. TRAINING LOOP ---
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+model = GraphSAGE(FEATURE_DIM, 64, NUM_CLASSES).to(device)
+X, Y = X.to(device), Y.to(device) # Move memory mappings to GPU buffer
+optimizer = optim.Adam(model.parameters(), lr=0.01)
+criterion = nn.CrossEntropyLoss()
+
+print("\n🚀 Starting GraphSAGE Training...")
+t0 = time.time()
+
+for epoch in range(3):
+    total_loss = 0
+    for targets, neighbors in loader:
+        targets, neighbors = targets.to(device), neighbors.to(device)
+        
+        optimizer.zero_grad()
+        logits = model(targets, neighbors) 
+        loss = criterion(logits, Y[targets]) # Fetch actual labels from .gd mapping
+        
+        loss.backward()
+        optimizer.step()
+        total_loss += loss.item()
+        
+    print(f"Epoch {epoch+1}/3 | Avg Loss: {total_loss/len(loader):.4f}")
+
+print(f"✅ Training Complete in {time.time() - t0:.2f} seconds.")
+```
+This example demonstrates a complete end-to-end workflow using `GraphZero` for a GNN training task. The synthetic dataset is generated, converted to the optimized binary formats, and then seamlessly integrated into a PyTorch training loop with zero-copy data access. The C++ engine handles all graph sampling efficiently, allowing the GPU to focus on training the model.
+
+![GraphSAGE Training Output](benchmark/images/graphsage_output.png)
